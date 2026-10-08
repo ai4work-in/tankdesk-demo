@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141414">
+<title>Tank Desk</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<!-- Fonts: Sora for headings and the ai4work wordmark, Hind Vadodara for body text (supports Gujarati) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;700;800&family=Hind+Vadodara:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="chat.css">  <!-- WhatsApp-style layout pieces -->
+<!-- Extra styles per screen group (kept separate so each is easy to find) -->
+<link rel="stylesheet" href="admin.css">
+<link rel="stylesheet" href="phone.css">
+</head>
+<body>
+
+<!-- ============ 1. PIN LOGIN (everyone starts here) ============ -->
+<section id="v-login" class="login" hidden>
+ <div class="prodname">Tank Desk</div>
+ <div class="pin">
+  <h3>લૉગિન <span class="sub">/ Log in</span></h3>
+  <div class="sub" id="pin-hint">તમારો 4 આંકડાનો PIN નાખો · Enter your 4-digit PIN</div>
+  <div class="sub" style="margin-top:6px;font-size:13px;line-height:1.5">ડેમો PIN · Demo PINs: Owner <b>0000</b> · Driver Team A <b>1111</b> (B 2222, C 3333) · Collector <b>9090</b> · Supervisor <b>7070</b></div>
+  <div class="dots4" id="pin-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="box bad" id="pin-err" role="alert" hidden></div>
+  <div class="pad" id="pin-pad">
+   <button data-act="pin" data-d="1">1</button><button data-act="pin" data-d="2">2</button><button data-act="pin" data-d="3">3</button>
+   <button data-act="pin" data-d="4">4</button><button data-act="pin" data-d="5">5</button><button data-act="pin" data-d="6">6</button>
+   <button data-act="pin" data-d="7">7</button><button data-act="pin" data-d="8">8</button><button data-act="pin" data-d="9">9</button>
+   <span></span><button data-act="pin" data-d="0">0</button><button data-act="pin" data-d="back" aria-label="Delete">⌫</button>
+  </div>
+ </div>
+ <span class="credit">created by <span class="wm"><span class="a">ai</span><span class="f">4</span><span class="w">work</span></span></span>
+</section>
+
+<!-- ============ 2. LOADING / ERROR (shown while the app talks to the server) ============ -->
+<section id="v-wait" class="login" hidden>
+ <div class="prodname">Tank Desk</div>
+ <div id="wait-msg" class="sub">લોડ થાય છે… · Loading…</div>
+</section>
+
+<!-- ============ 3. ADMIN (desktop / tablet, English) ============ -->
+<div id="v-admin" class="desk" hidden>
+ <div class="desk-main">
+  <!-- Side menu: filled in by app.js -->
+  <nav class="side" id="ad-side" aria-label="Admin menu"></nav>
+  <!-- One section per menu item. Only one is visible at a time. -->
+  <main class="content">
+   <div id="ad-dash" class="sec"></div>
+   <div id="ad-new" class="sec" hidden></div>
+   <div id="ad-orders" class="sec" hidden></div>
+   <div id="ad-clients" class="sec" hidden></div>
+   <div id="ad-cal" class="sec" hidden></div>
+   <div id="ad-teams" class="sec" hidden></div>
+   <div id="ad-logbook" class="sec" hidden></div>
+   <div id="ad-pay" class="sec" hidden></div>
+   <div id="ad-ot" class="sec" hidden></div>
+   <div id="ad-reports" class="sec" hidden></div>
+  </main>
+ </div>
+ <footer class="frame-foot">
+  <span class="sub" id="ad-foot-note"></span>
+  <span class="credit">created by <span class="wm"><span class="a">ai</span><span class="f">4</span><span class="w">work</span></span></span>
+ </footer>
+</div>
+
+<!-- ============ 4. PHONE (driver, collector and supervisor, Gujarati) ============ -->
+<div id="v-phone" class="phone" hidden>
+ <!-- Blue header bar with tabs under it, like WhatsApp. Filled in by app.js. -->
+ <div id="ph-head"></div>
+ <nav class="wa-tabs" id="ph-tabs" role="tablist"></nav>
+ <main class="ph-body" id="ph-body"></main>
+ <footer class="ph-foot">
+  <span class="credit">created by <span class="wm"><span class="a">ai</span><span class="f">4</span><span class="w">work</span></span></span>
+ </footer>
+ <!-- Slide-in menu (drawer) and bottom sheet. Empty and hidden until opened. -->
+ <!-- A job or client opens here like a chat, over the list -->
+ <div id="ph-chat" hidden></div>
+ <div id="ph-drawer" hidden></div>
+ <div id="ph-sheet" hidden></div>
+</div>
+
+<!-- Short pop-up messages ("Saved", "No network") -->
+<div id="toasts" aria-live="polite"></div>
+
+<!-- Scripts: order matters. Helpers first, then the server link, then the app.
+     The role screens come after app.js because they register themselves into it.
+     The app starts once every script has loaded. -->
+<script src="common.js"></script>
+<script src="api.js"></script>
+<script src="mock-api.js"></script>
+<script src="app.js"></script>
+<script src="chat.js"></script>  <!-- WhatsApp-style helpers used by every screen -->
+<script src="tank-editor.js"></script>  <!-- the one tank editor (driver, supervisor, admin) -->
+<!-- Role screens. Each file registers its screens into app.js. -->
+<script src="admin-orders.js"></script>   <!-- New order, Orders and assign, Calendar, Team routes -->
+<script src="admin-insights.js"></script> <!-- Dashboard, Clients, Payments, Overtime -->
+<script src="admin-reports.js"></script>  <!-- Reports (monthly analysis) -->
+<script src="admin-logbook.js"></script>  <!-- Log book (vehicle day sheet, costs) -->
+<script src="driver.js"></script>         <!-- Driver (Gujarati) -->
+<script src="collector.js"></script>      <!-- Collector (Gujarati) -->
+<script src="supervisor.js"></script>     <!-- Supervisor: tank survey before a quotation (Gujarati) -->
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "Tank Desk",
+  "short_name": "Tank Desk",
+  "description": "Orders, teams and payments for a water tank cleaning agency.",
+  "lang": "gu",
+  "display": "standalone",
+  "scope": "./",
+  "start_url": "./",
+  "theme_color": "#141414",
+  "background_color": "#F2F5EE",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

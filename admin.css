@@ -1,0 +1,642 @@
+/* ==========================================================================
+   admin.css: styles for the admin screens (admin-orders.js and admin-insights.js).
+   The admin looks like WhatsApp on a computer, in the light-blue water theme:
+     - rounded white cards on the blue "wallpaper"
+     - chat-list rows (round initials, name, time on the right, a grey second line)
+     - the Clients screen: list on the left, the open client as a chat on the right
+   Colours always come from the variables in styles.css, so dark mode just works.
+   Shared pieces (WA.row, bubbles, wa-head) are in chat.css; this file only adds admin bits.
+   ========================================================================== */
+
+/* ---------- every admin screen: header bar, cards, tiles ---------- */
+/* Screen title: a white bar on top of the wallpaper (like the chat header in WhatsApp) */
+.desk .content>.sec>header{background:var(--surface);border-radius:12px;padding:12px 16px;box-shadow:0 1px .5px rgba(0,0,0,.1);align-items:center}
+.desk .content>.sec>header h2{color:var(--fg)}
+/* Number tiles: white rounded cards with a thin blue line on the left */
+.desk .tile{background:var(--surface);border-left:3px solid var(--accent)}
+.desk .tile .v{color:var(--fg)}
+.desk .tile.bad{border-left-color:var(--bad)}
+.desk .tile.bad .v{color:var(--bad)}
+/* Tables: white card on the wallpaper */
+.desk .tw{background:var(--surface);border-color:var(--line)}
+/* Day lists (Calendar, Overtime): white rows */
+.desk .dl{background:var(--surface);border-color:var(--line);box-shadow:0 1px .5px rgba(0,0,0,.06)}
+/* Small heading bars between parts of a screen ("Ledger", "By team") */
+.ins-bar{margin:0 0 8px}
+.ins-bar h3{color:var(--accent)}
+.ins-sec{margin-top:18px}
+.ins-h3{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.ins-h3 h3{margin:0}
+.ins-red{color:var(--bad);font-weight:700}
+.ins-paid{color:var(--ok)}
+/* A card whose list runs to the edges (chat-list rows inside a card) */
+.card.ins-flush{padding:0;overflow:hidden}
+.card.ins-flush>.ins-h3{padding:12px 14px 8px}
+.ins-m{margin:0 14px 14px}
+
+/* Small round initials next to a client name in tables and lists */
+.ins-who,.ao-who{display:flex;align-items:center;gap:8px;min-width:0}
+.ins-who .wa-av,.ao-who .wa-av{width:30px;height:30px;font-size:12px}
+.ins-who-t,.ao-who-t{min-width:0;overflow-wrap:anywhere}
+.lnk.ins-cl{color:var(--fg);text-align:left;text-decoration-color:var(--line)}
+.lnk.ins-cl:hover{color:var(--accent);text-decoration-color:var(--accent)}
+
+/* ---------- Dashboard ---------- */
+.ins-chart svg{width:100%;height:auto;display:block}
+.ins-legend{gap:14px;margin-top:6px}
+/* Alerts feed: icon circle, text, time on the right */
+.ins-feed{max-height:360px;overflow:auto}
+.ins-fi{display:flex;gap:12px;align-items:flex-start;padding:9px 14px}
+.ins-fi .wa-av{width:36px;height:36px}
+.ins-fi .wa-av svg{width:18px;height:18px}
+.ins-fi .mid{flex:1;min-width:0;border-bottom:1px solid var(--line);padding-bottom:9px;margin-bottom:-9px}
+.ins-fi:last-child .mid{border-bottom:0}
+.ins-fi .l1,.ins-fi .l2{display:flex;align-items:baseline;gap:8px;min-width:0}
+.ins-fi .tx{flex:1;min-width:0;font-size:13.5px;line-height:1.4;overflow-wrap:anywhere}
+.ins-fi time{flex:none;font-size:12px;color:var(--muted)}
+.ins-fi .l2 .sub{flex:1}
+.ins-fi.new{background:var(--accent-soft)}
+.ins-fi.new time{color:var(--accent);font-weight:700}
+.ins-fi .bd{flex:none;background:var(--bad);color:#fff;border-radius:99px;font-size:11px;font-weight:700;padding:0 7px;line-height:18px}
+/* Visits due: chat-list rows with two buttons under each */
+.ins-dueit{border-bottom:1px solid var(--line)}
+.ins-dueit:last-child{border-bottom:0}
+.ins-dueit .wa-row .mid{border-bottom:0}
+.ins-dueit .acts{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 10px 72px}
+.ins-dueit.over .wa-row .tm{color:var(--bad);font-weight:700}
+.ins-dueit.today .wa-row .tm{color:var(--warn);font-weight:700}
+
+/* ---------- Clients: two panes like WhatsApp on a computer ---------- */
+.ins-split{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);
+  height:max(480px,calc(100vh - 210px));height:max(480px,calc(100dvh - 210px));
+  background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+/* left: search bar + client list */
+.ins-lp{display:flex;flex-direction:column;min-height:0;min-width:0;border-right:1px solid var(--line);background:var(--surface)}
+.ins-sbar{padding:8px 10px;border-bottom:1px solid var(--line)}
+.ins-sbox{display:flex;align-items:center;gap:10px;background:var(--surface2);border-radius:10px;padding:0 12px;height:38px;color:var(--muted);cursor:text}
+.ins-sbox svg{width:18px;height:18px;flex:none}
+.ins-sbox input{flex:1;min-width:0;border:0;background:none;outline:none;font-size:14px;color:var(--fg);height:100%}
+.ins-cnt{padding:6px 14px 0}
+.ins-cnt:empty{display:none}
+.ins-lp .wa-list{flex:1;min-height:0;overflow-y:auto}
+.ins-lp .wa-row .pv b{font-weight:700}
+/* right: the open client */
+.ins-cp{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--wall)}
+.ins-cp .wa-head{padding-top:10px}
+.ins-cp .wa-head a.wa-ib{color:inherit}
+/* "Book new order" button in the header */
+.ins-hbtn{flex:none;display:flex;align-items:center;gap:6px;border:0;border-radius:20px;background:var(--head-ink);color:var(--head);
+  font:inherit;font-weight:700;font-size:13px;padding:7px 14px 7px 10px;cursor:pointer;margin-left:4px}
+.ins-hbtn svg{width:16px;height:16px}
+.ins-hbtn:hover{opacity:.9}
+/* the empty panel before a client is picked */
+.ins-intro{margin:auto;max-width:360px;text-align:center;padding:24px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.ins-intro .wa-av{width:72px;height:72px}
+.ins-intro .wa-av svg{width:34px;height:34px}
+/* small pinned card at the top of the chat: totals and next visit */
+.ins-pin{background:var(--surface);border-bottom:1px solid var(--line);padding:8px 14px 10px;display:flex;flex-direction:column;gap:6px}
+.ins-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.ins-stats .st{background:var(--surface2);border-radius:8px;padding:4px 8px;min-width:0}
+.ins-stats .st b{display:block;font-family:var(--f-display);font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ins-stats .st b small{font-size:11px;color:var(--muted);font-weight:400}
+.ins-stats .st span{display:block;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ins-addr{overflow-wrap:anywhere}
+.ins-nv{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.ins-nv input{width:auto;min-height:32px;padding:3px 8px}
+.ins-nvl{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:13px;color:var(--accent)}
+.ins-nvl svg{width:16px;height:16px}
+/* the chat itself */
+.ins-msgs{padding:10px 6% 16px}
+.ins-msgs .bub{max-width:min(86%,560px)}
+.ins-msgs .bub.ins-ob{min-width:min(280px,86%)}
+.ins-msgs .bub .kv dd .tchip{font-size:13px}
+.ins-msgs .bub .pill{font-size:11.5px}
+.ins-msgs .bub.ins-cust .who{color:var(--muted)}
+.ins-tpl{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--accent);margin-bottom:1px}
+.ins-tpl svg{width:14px;height:14px}
+/* ticks: grey when sent or delivered, blue when read (like WhatsApp) */
+.ins-msgs .bub.ins-unread .meta svg{color:var(--bub-meta)}
+.ins-msgs .bub.ins-read .meta svg{color:var(--tick)}
+/* alert notes in the middle: red for bad, blue for info (yellow comes from chat.css) */
+.wa-sys.ins-bad{background:var(--bad-bg);color:var(--bad)}
+.wa-sys.ins-info{background:var(--info-bg);color:var(--info)}
+
+/* narrower screens: only one pane at a time (the list, or the client with a back arrow) */
+@media (min-width:980px){
+ .ins-cp .wa-head [data-act="ins-cl-back"]{display:none}
+}
+@media (max-width:979px){
+ .ins-split{grid-template-columns:minmax(0,1fr);height:auto}
+ .ins-lp{border-right:0}
+ .ins-lp .wa-list{overflow:visible}
+ #ad-clients:not(.ins-open) .ins-cp{display:none}
+ #ad-clients.ins-open .ins-lp{display:none}
+ #ad-clients.ins-open>header{display:none}
+ #ad-clients.ins-open .ins-split{height:calc(100vh - 24px);height:calc(100dvh - 24px);min-height:420px}
+ .ins-msgs{padding:10px 8px 14px}
+}
+@media (max-width:620px){
+ .ins-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+ /* keep it small on a phone: jobs done, billed, balance (paid and disputes are in the chat) */
+ .ins-stats .st:nth-child(3),.ins-stats .st:nth-child(5){display:none}
+ .ins-hbtn span{display:none}                    /* "Book new order" shows as a + button */
+ .ins-hbtn{padding:8px;margin-left:0}
+ .ins-cp .wa-head{gap:6px;padding-left:6px}
+ .ins-cp .wa-head .wa-ib{width:36px;height:36px}
+ .ins-dueit .acts{padding-left:14px}
+}
+
+/* ---------- Orders and assign ---------- */
+.lnk.ao-cl{color:var(--fg);font-weight:700;text-align:left;text-decoration-color:var(--line)}
+.lnk.ao-cl:hover{color:var(--accent);text-decoration-color:var(--accent)}
+/* Filters sit in a white bar */
+.ao-filters .fsel{max-width:100%}
+/* Lighter rows: less padding, cells centred, a soft hover */
+#ad-orders .ao-tbl td{padding:6px 10px;vertical-align:middle;min-width:0;white-space:normal}
+#ad-orders .ao-tbl tbody tr:not(.grp):hover td{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+#ad-orders .ao-tbl tr td:nth-child(n){min-width:0}   /* undo the old column widths in styles.css */
+#ad-orders .ao-tbl tr td.c-cl{min-width:200px}
+#ad-orders .ao-tbl tr td.c-when{white-space:nowrap}
+#ad-orders .ao-tbl tr td.c-team{min-width:190px;white-space:nowrap}
+#ad-orders .ao-tbl tr td.c-st{min-width:110px}
+#ad-orders .ao-tbl tr td.c-st .pill{margin:1px 0}
+.ao-tbl .ao-who .wa-av{width:32px;height:32px;font-size:12px}
+.ao-tbl .c-task{max-width:200px}
+/* area + small map pin */
+.ao-ar{display:inline-flex;align-items:center;gap:4px;font-weight:600}
+.ao-mapic{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;color:var(--muted)}
+.ao-mapic svg{width:15px;height:15px}
+.ao-mapic:hover{color:var(--accent);background:var(--accent-soft)}
+/* team chip that is also a light dropdown (no heavy box) */
+.ao-ts{position:relative;display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:2px 8px 2px 9px;
+  background:color-mix(in srgb,var(--tc) 12%,transparent)}
+.ao-ts:hover{background:color-mix(in srgb,var(--tc) 22%,transparent)}
+.desk .ao-ts select{appearance:none;-webkit-appearance:none;border:0;background:transparent;padding:2px 16px 2px 0;min-height:0;width:auto;max-width:none;
+  font-weight:600;font-size:13px;cursor:pointer;color:var(--fg)}
+/* the small down-arrow (a chevron drawn with two borders) */
+.ao-ts::after,.ao-chev{content:"";width:5px;height:5px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg);pointer-events:none}
+.ao-ts::after{position:absolute;right:10px;top:calc(50% - 5px);color:var(--muted)}
+.ao-chev{display:block;margin-top:-3px}
+.ao-ts-none{--tc:var(--tN)}
+.ao-ts-none select{color:var(--muted)!important;font-weight:500!important}
+.ao-ts select option,.ao-more select option{color:var(--fg);background:var(--surface)}
+/* no team yet: "Assign Team A" + a tiny ▾ with the full team list hidden under it */
+.ao-ua{display:inline-flex;align-items:stretch}
+.ao-ua .btn{border-radius:10px 0 0 10px}
+.ao-more{position:relative;display:grid;place-items:center;width:26px;border-radius:0 10px 10px 0;background:var(--accent);color:var(--accent-ink);
+  border-left:1px solid color-mix(in srgb,var(--accent-ink) 30%,transparent);cursor:pointer}
+.desk .ao-more select{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;min-height:0;padding:0}
+/* "Before 10 AM" / "After 5 PM": small and quiet */
+.pill.hrs{font-size:11px;font-weight:500;background:none;border:1px solid var(--line);padding:0 7px}
+
+/* Phone: each order becomes a small card instead of a squeezed table */
+@media (max-width:640px){
+ #ad-orders .ao-tbl thead{display:none}
+ #ad-orders .ao-tbl,#ad-orders .ao-tbl tbody{display:block}
+ #ad-orders .ao-tbl tr{display:block}
+ #ad-orders .ao-tbl tr:not(.grp){display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:10px 12px;border-top:1px solid var(--line);
+   grid-template-areas:"cl when" "area amt" "task task" "team st"}
+ #ad-orders .ao-tbl tbody tr:first-child{border-top:0}
+ #ad-orders .ao-tbl td{display:block;padding:0;border:0;background:none!important}
+ #ad-orders .ao-tbl tr td.c-cl{grid-area:cl;min-width:0}
+ #ad-orders .ao-tbl tr td.c-when{grid-area:when;text-align:right}
+ #ad-orders .ao-tbl tr td.c-area{grid-area:area}
+ #ad-orders .ao-tbl tr td.c-amt{grid-area:amt;text-align:right;font-weight:700}
+ #ad-orders .ao-tbl tr td.c-task{grid-area:task;max-width:none}
+ #ad-orders .ao-tbl tr td.c-team{grid-area:team;min-width:0}
+ #ad-orders .ao-tbl tr td.c-st{grid-area:st;min-width:0;text-align:right;align-self:center}
+ /* several pills (survey, quote, days) wrap instead of widening the card's right column */
+ #ad-orders .ao-tbl tr td.c-st{max-width:160px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:3px}
+ #ad-orders .ao-tbl tr.hi{background:var(--info-bg)}
+ #ad-orders .ao-tbl .c-area .sub{display:inline;margin-left:6px}
+}
+
+/* ---------- New order ---------- */
+/* The form is a white card on the wallpaper */
+.desk #ao-f{background:var(--surface);border-radius:12px;padding:16px;box-shadow:0 1px .5px rgba(0,0,0,.1);min-width:0}
+/* "Returning client": the client's initials and one chat bubble about the last service */
+.ao-ret{display:flex;align-items:flex-start;gap:8px;background:var(--wall);border-radius:12px;padding:10px;border:1px solid var(--line)}
+.ao-ret .wa-av{width:32px;height:32px;font-size:12px}
+.ao-ret .bub{max-width:100%;font-size:13.5px;flex:0 1 auto}
+.ao-ret .bub .lnk{font-size:13px;margin-top:2px}
+/* "Order saved" box above the form, with Assign / See in Orders */
+.ao-saved{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;margin-bottom:14px}
+.ao-saved .sub{color:inherit;opacity:.85}
+
+/* ---------- Calendar ---------- */
+.desk .cal{background:var(--surface);border-radius:12px;padding:8px;box-shadow:0 1px .5px rgba(0,0,0,.1)}
+.desk .cal .cell:not(.off){background:var(--alt)}
+.desk .cal .cell:not(.off):hover{border-color:var(--accent)}
+.cal.ao-dim{opacity:.55;transition:opacity .15s}
+
+/* ---------- Team routes ---------- */
+/* Cards keep their own height (no stretching), so short cards leave no big empty space */
+.ao-teams{grid-template-columns:repeat(auto-fill,minmax(270px,1fr));align-items:start;gap:12px}
+.desk .tcard{background:var(--surface);box-shadow:0 1px .5px rgba(0,0,0,.1)}
+.ao-tc{border-top:3px solid var(--tc);gap:8px;padding:10px 12px 12px}
+/* card top: team name and helpers on the left, Call / WhatsApp on the right */
+.ao-th{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.ao-tn{display:flex;flex-direction:column;min-width:0}
+.ao-tn .tchip{white-space:normal}
+.ao-ph{display:flex;gap:6px;flex:none}
+.ao-ib{display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:var(--fg)}
+.ao-ib svg{width:15px;height:15px;flex:none}
+.ao-ib:hover{color:var(--accent)}
+/* the one-line live status: green = fine, amber = late, grey = idle */
+.ao-live{display:flex;align-items:flex-start;gap:8px;border-radius:9px;padding:6px 10px;font-size:13.5px;font-weight:600;line-height:1.35;
+  background:var(--surface2);color:var(--muted)}
+.ao-live i{flex:none;width:8px;height:8px;border-radius:50%;background:currentColor;margin-top:5px}
+.ao-live.ok{background:var(--ok-bg);color:var(--ok)}
+.ao-live.warn{background:var(--warn-bg);color:var(--warn)}
+.ao-live.idle{font-weight:500}
+/* the stops: a numbered list; done stops ticked and faded, the current/next one highlighted */
+.ao-stops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.ao-stop{display:flex;gap:9px;align-items:flex-start;padding:6px 6px;border-radius:9px;font-size:13.5px;line-height:1.4;overflow-wrap:anywhere}
+.ao-stop .ao-sb{min-width:0;flex:1}
+.ao-stop .pill{margin-top:2px}
+.ao-n{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:700;
+  background:var(--tc);color:var(--on-team);margin-top:1px}
+.ao-tm{font-family:var(--f-display);font-size:12.5px;white-space:nowrap}
+.ao-stop.done{opacity:.6}
+.ao-stop.done .ao-n{background:var(--surface2);color:var(--ok)}
+.ao-stop.cur{background:color-mix(in srgb,var(--tc) 12%,transparent);box-shadow:inset 3px 0 0 var(--tc)}
+.ao-leg{font-size:11.5px;color:var(--muted);padding:0 0 0 15px;margin-left:9px;border-left:2px dotted var(--line);line-height:1.6}
+.ao-prog{display:flex;align-items:center;gap:10px}
+.ao-prog .sub{flex:none}
+.ao-prog .prog{flex:1;height:6px}
+/* "Jobs need a team" card: white card, soft amber edge; rows in 3 lined-up columns */
+.ao-un{border-left:4px solid var(--warn);padding:0;overflow:hidden}
+.ao-unh{display:flex;align-items:center;gap:8px;padding:10px 14px;color:var(--fg)}
+.ao-unh b{flex:1;font-size:14px}
+.ao-und{width:9px;height:9px;border-radius:50%;background:var(--warn);flex:none}
+.ao-unl{font-size:12.5px;font-weight:600}
+.ao-unr{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;gap:12px;align-items:center;padding:8px 14px;border-top:1px solid var(--line);min-height:54px}
+.ao-u1,.ao-u2{min-width:0;overflow-wrap:anywhere}
+.ao-u1 b{color:var(--fg)}
+.ao-u3{justify-self:end}
+.ao-u3 .btn{white-space:nowrap}
+@media (max-width:520px){
+ .ao-unr{grid-template-columns:minmax(0,1fr) auto;gap:4px 10px}
+ .ao-u1{grid-column:1;grid-row:1}
+ .ao-u2{grid-column:1;grid-row:2}
+ .ao-u3{grid-column:2;grid-row:1/3}
+}
+/* the compact route map: map on the left, key on the right (stacked on a phone) */
+.ao-strip{margin-top:14px;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center}
+.ao-map{flex:0 1 auto;min-width:0;max-width:100%}
+.ao-map svg{display:block;max-width:100%;height:auto;max-height:280px;width:auto;border-radius:10px}
+.ao-key{flex:1 1 220px;min-width:0}
+.ao-key h3{margin-bottom:6px}
+.ao-key ul{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.ao-sw{display:inline-block;width:18px;height:4px;border-radius:2px;background:var(--tc);vertical-align:3px;margin-right:6px}
+.ao-dn{fill:var(--on-team);font-family:var(--f-body);font-size:11px;font-weight:700}
+/* Area names on the schematic maps: a little bigger than chart text so they read on phones */
+.svgt.ao-mt{font-size:12px}
+/* a soft outline in the map colour, so a route line never hides an area name */
+.ao-map .svgt.ao-mt{paint-order:stroke;stroke:var(--map-bg);stroke-width:4px;stroke-linejoin:round}
+#ao-side .svgt.ao-mt{font-size:14px}
+@media (max-width:520px){
+ .ao-ib span{display:none}           /* Call shows as an icon only on a phone */
+ .ao-un li{flex-wrap:wrap}
+}
+
+/* Dashboard "Teams today": live line + bar in the middle */
+/* (plain coloured text here, no box: the rows stay calm and line up) */
+.tl .row.ins-tr{grid-template-columns:170px minmax(0,1fr) 120px}
+.tl .row.ins-tr>.sub{text-align:right}
+.ins-trm{display:flex;flex-direction:column;gap:5px;min-width:0}
+.ins-trm .ao-live{padding:0;background:none;font-size:13px}
+.ins-trm .ao-live i{margin-top:5px}
+@media (max-width:520px){.tl .row.ins-tr{grid-template-columns:minmax(0,1fr) auto}.tl .row.ins-tr>.sub{text-align:right}.tl .row.ins-tr .ins-trm{grid-column:1/-1;grid-row:2}}
+
+/* ---------- Payments ---------- */
+.desk .ins-bar{background:var(--surface);border-radius:12px 12px 0 0;padding:10px 14px;margin-bottom:0;border:1px solid var(--line);border-bottom:0}
+.desk .ins-bar+.tw{border-top-left-radius:0;border-top-right-radius:0}
+.desk .ins-bar+.daylist{margin-top:0;background:var(--surface);padding:10px;border-radius:0 0 12px 12px;border:1px solid var(--line);border-top:0}
+.desk .ins-bar+.empty{border-top-left-radius:0;border-top-right-radius:0;background:var(--surface)}
+
+/* ---------- narrow screens ---------- */
+@media (max-width:520px){
+ #ad-orders header .btn.pri{width:100%}
+ .ao-saved .chips{width:100%}
+ .desk .content>.sec>header{padding:10px 12px}
+}
+
+/* Badges and alert circles: text in the card colour, so it stays readable in dark mode
+   (where red and amber are light). In light mode this is white, as before. */
+.desk .wa-row .bd.bad,.desk .wa-row .bd.warn,.ins-fi .bd{color:var(--surface)}
+.ins-fi .wa-av{color:var(--surface)}
+
+/* Small "updating…" note while fresh data loads (the saved copy is already on screen).
+   Same on every admin screen: muted small text with a tiny spinning dot. Not a button. */
+.upd{display:inline-flex;align-items:center;gap:5px;margin-left:6px;color:var(--muted);font-weight:400;font-size:12px;font-family:var(--f-body);vertical-align:1px}
+.upd::before{content:"";width:8px;height:8px;border-radius:50%;border:1.5px solid var(--line);border-top-color:var(--accent);animation:upd-spin .8s linear infinite}
+.sec>header>div>.upd{margin-left:0}
+@keyframes upd-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.upd::before{animation:none}}
+
+/* ---------- Orders filters on a phone ----------
+   On a wide screen all dropdowns show. On a phone they fold away behind one
+   "Filters" button so the orders are visible straight away. */
+.ao-ftoggle{display:none}
+@media (max-width:640px){
+  .ao-ftoggle{display:inline-flex}
+  .ao-filters:not(.open){display:none}
+  .ao-filters.open .fsel{flex:1 1 calc(50% - 8px);width:auto !important;min-width:0}
+}
+
+/* ---------- Order actions: "⋯" menu, Edit panel, Reschedule / Cancel dialogs ---------- */
+.ao-vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.ao-om{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;border:0;background:none;color:var(--muted);
+  font-size:20px;line-height:1;font-weight:700;cursor:pointer}
+.ao-om:hover,.ao-om[aria-expanded="true"]{background:var(--surface2);color:var(--fg)}
+.ao-om:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#ad-orders .ao-tbl tr td.c-act{width:40px;padding-left:0;text-align:right}
+/* the small menu under the button */
+.ao-pop{position:fixed;z-index:40;min-width:190px;background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--shadow);padding:4px;display:flex;flex-direction:column}
+.ao-pop[hidden]{display:none}
+.ao-poph{font-size:11.5px;color:var(--muted);padding:6px 10px 4px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.ao-pop [role="menuitem"]{border:0;background:none;text-align:left;padding:9px 10px;border-radius:8px;font:inherit;font-weight:600;color:var(--fg);cursor:pointer}
+.ao-pop [role="menuitem"]:hover,.ao-pop [role="menuitem"]:focus-visible{background:var(--surface2);outline:none}
+.ao-pop [role="menuitem"].bad{color:var(--bad)}
+.ao-popn{padding:4px 10px 8px;font-size:12px;max-width:220px}
+/* cancelled orders: greyed out, with a "Cancelled · reason" pill */
+.pill.ao-cxp{background:var(--surface2);color:var(--muted);border:1px dashed var(--line);font-weight:600}
+#ad-orders .ao-tbl tr.ao-cx td:not(.c-act):not(.c-st){opacity:.5}
+#ad-orders .ao-tbl tr.ao-cx td.c-amt{text-decoration:line-through}
+.ao-cxbox{background:var(--surface2);color:var(--muted)}
+/* client history: the menu sits at the top right of each order bubble */
+.ins-msgs .bub.ins-ob{position:relative;padding-right:36px}
+.ins-om{position:absolute;top:3px;right:3px}
+/* "Booked by / Edited by / Cancelled by" in client history: small and quiet */
+.ins-by{font-size:12px;color:var(--muted)}
+.ins-byl{margin-top:4px}
+.ins-msgs .bub.ins-cx{opacity:.62}
+.ins-msgs .bub.ins-cx .ins-om{opacity:1}
+/* the panel / dialog box */
+.ao-modal{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px}
+.ao-modal[hidden]{display:none}
+.ao-scrim{position:absolute;inset:0;background:color-mix(in srgb,var(--head) 55%,transparent)}
+.ao-dlg{position:relative;background:var(--surface);color:var(--fg);border-radius:16px;box-shadow:var(--shadow);width:min(460px,100%);
+  max-height:calc(100vh - 32px);display:flex;flex-direction:column;overflow:hidden}
+.ao-dlgh{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 12px 10px 18px;border-bottom:1px solid var(--line)}
+.ao-dlgh h3{margin:0;font-size:17px}
+.ao-x{border:0;background:none;color:var(--muted);font-size:26px;line-height:1;width:36px;height:36px;border-radius:50%;cursor:pointer}
+.ao-x:hover{background:var(--surface2);color:var(--fg)}
+.ao-dlgb{padding:14px 18px;overflow:auto;display:flex;flex-direction:column;gap:12px;flex:1;min-height:0}
+.ao-dlgb .form-grid{margin-bottom:0}
+.ao-dlgf{display:flex;justify-content:flex-end;gap:8px;padding:10px 18px 14px;border-top:1px solid var(--line);background:var(--surface)}
+.ao-dlgs{display:flex;align-items:center;gap:10px;margin:0;background:var(--wall);border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.ao-dlgs .wa-av{width:34px;height:34px;font-size:12px;flex:none}
+.ao-dlgw{display:block}
+.ao-ck{display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer}
+.ao-ck input{width:18px;height:18px;accent-color:var(--accent)}
+.ao-mvbox{display:flex;flex-direction:column;gap:6px}
+.ao-mvbox[hidden]{display:none}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:var(--surface)}
+.btn.danger:hover{filter:brightness(1.08)}
+/* Edit: a panel that slides in from the right */
+.ao-modal.ao-panel{justify-content:flex-end;align-items:stretch;padding:0}
+.ao-modal.ao-panel .ao-dlg{width:min(560px,100%);max-height:none;height:100%;border-radius:16px 0 0 16px}
+@media (prefers-reduced-motion:no-preference){
+ .ao-modal.ao-panel .ao-dlg{animation:ao-slide .18s ease-out}
+ @keyframes ao-slide{from{transform:translateX(30px);opacity:.6}to{transform:none;opacity:1}}
+}
+body.ao-noscroll{overflow:hidden}
+@media (max-width:640px){
+ /* the menu button sits at the top right of each order card */
+ #ad-orders .ao-tbl tr:not(.grp){position:relative}
+ #ad-orders .ao-tbl tr td.c-when{padding-right:30px}
+ #ad-orders .ao-tbl tr td.c-act{position:absolute;top:6px;right:4px;width:auto}
+ .ao-modal{padding:0;align-items:flex-end}
+ .ao-dlg{width:100%;border-radius:18px 18px 0 0;max-height:92vh}
+ .ao-modal.ao-panel .ao-dlg{border-radius:0}
+ .ao-dlgf .btn{flex:1}
+}
+
+/* ---------- Client history: archived orders (from the OrderHistory tab) ----------
+   No ⋯ menu on these, so no extra space on the right of the bubble */
+.ins-msgs .bub.ins-ob.ins-arch{padding-right:10px}
+
+/* ---------- Reports (admin-reports.js) ---------- */
+/* month picker in the header: ‹ October 2026 › */
+.rp-pick{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.rp-pick .btn.sm[data-d]{min-width:34px;font-size:17px;line-height:1;padding:3px 8px}
+.rp-mn{font-family:var(--f-display);font-size:15px;min-width:120px;text-align:center}
+/* "vs last month": green when better, red when worse */
+.rp-ch{font-weight:700;white-space:nowrap}
+.rp-ch.up{color:var(--ok)}
+.rp-ch.down{color:var(--bad)}
+.rp-same{color:var(--muted)}
+/* cards in a grid that wraps: 3 across on a wide screen, 1 on a phone */
+.rp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px;margin-bottom:14px}
+.rp-card{min-width:0}
+.rp-card>.ins-h3{margin-bottom:8px}
+.card.ins-flush.rp-card>.ins-h3{margin-bottom:0}
+.rp-none{padding:6px 0}
+/* horizontal bars: name | bar | number */
+.rp-bars{display:flex;flex-direction:column;gap:2px}
+.rp-br{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(50px,1fr) auto;gap:10px;align-items:center;padding:4px 0;font-size:13.5px}
+.rp-bl{min-width:0;overflow-wrap:anywhere}
+.rp-bt{height:8px;background:var(--surface2);border-radius:99px;overflow:hidden}
+.rp-bt i{display:block;height:100%;background:var(--bc,var(--accent));border-radius:99px}
+.rp-bv{white-space:nowrap;text-align:right;font-weight:600}
+.rp-bv .sub{font-weight:400}
+.rp-groups{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+/* problems list: the number on the right */
+.rp-feed{max-height:none}
+.rp-pn{flex:none;font-family:var(--f-display);font-size:16px;color:var(--muted)}
+.rp-pn.bad{color:var(--warn)}
+@media (max-width:520px){
+ .rp-pick{width:100%}
+ .rp-mn{flex:1}
+}
+
+/* ---------- clients WITHOUT WhatsApp ----------
+   Grey "No WhatsApp · call" pill, the Yes / No switch on the client card, the
+   "Uses WhatsApp" switch on New order, and grey "Not sent · no WhatsApp" messages. */
+.pill.ins-nowa{background:var(--warn-bg);color:var(--warn);font-weight:700}
+.ins-wa .chips{display:inline-flex;gap:4px}
+.ins-wa .chip{padding:3px 14px;min-height:30px}
+.ins-wa .sub a{font-weight:600}
+.ins-msgs .bub.ins-skipped{background:var(--surface2);color:var(--muted);border:1px dashed var(--line)}
+.ins-msgs .bub.ins-skipped .ins-tpl{color:var(--muted)}
+.ins-skip{font-size:12px;font-weight:700;color:var(--muted);margin-top:2px}
+.ao-wa .chips{display:flex;gap:6px;flex-wrap:wrap}
+.ao-wa .chip:disabled{opacity:.5;cursor:default}
+.ao-callbox a{font-weight:700;color:var(--accent);white-space:nowrap}
+/* Orders table: the pill wraps instead of being cut off in the narrow client column */
+#ad-orders .c-cl .pill.ins-nowa{white-space:normal;margin-top:2px}
+.ao-mvbox a{font-weight:700;color:var(--accent)}
+
+/* ==========================================================================
+   Log book (admin-logbook.js, added 2026-10-08): one paper-like page per vehicle per day.
+   Ruled table with dark lines like the agency's printed book. Print styles at the end.
+   ========================================================================== */
+.lb-ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.lb-ctl .btn.sm[data-d]{min-width:34px;font-size:17px;line-height:1;padding:3px 8px}
+.lb-ctl .lb-dt{width:auto;min-height:32px;padding:4px 8px}
+.lb-teams{margin:0 0 12px}
+.lb-teams .chip .sub{font-weight:400;margin-left:2px}
+.lb-list{display:flex;flex-direction:column;gap:16px}
+.lb-sheet{padding:18px 20px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.lb-sheet.lb-empty{opacity:.75}
+.lb-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:10px}
+.lb-title{margin:0;font-family:var(--f-display);font-weight:800;font-size:26px;letter-spacing:.02em;text-align:center}
+.lb-veh b,.lb-date b{display:inline-block;min-width:90px;padding:0 4px;border-bottom:1.5px solid var(--fg);font-size:16px}
+.lb-date{text-align:right}
+.lb-who{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:10px 0 8px}
+.lb-sum{margin-left:auto}
+.lb-tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.lb-tbl{width:100%;min-width:560px;border-collapse:collapse;border:1.5px solid var(--fg);font-size:14px}
+.lb-tbl th,.lb-tbl td{border:1px solid var(--fg);padding:8px 10px;vertical-align:top;text-align:left}
+.lb-tbl th{font-weight:700;font-size:13.5px;background:var(--surface2)}
+.lb-tbl th small{display:block;font-weight:500;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.lb-tbl .lb-sr{width:64px;text-align:center}
+/* same column widths on every page: worker, building, measurement */
+.lb-tbl{table-layout:fixed}
+.lb-tbl th:nth-child(2){width:17%}
+.lb-tbl th:nth-child(4){width:36%}
+.lb-tbl td{overflow-wrap:anywhere}
+.lb-tbl td.lb-sr{font-weight:700}
+.lb-crew span,.lb-ms span{display:block}
+.lb-bld .sub{font-size:12.5px}
+.lb-st{margin-top:4px}
+.lb-ms{font-variant-numeric:tabular-nums}
+.lb-tbl tfoot td{font-weight:700;background:var(--surface2)}
+.lb-tl{text-align:right !important}
+.lb-pad{display:none}
+.lb-none .empty{padding:14px}
+/* the costs at the bottom of the page */
+.lb-costs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(0,1.6fr);gap:10px 14px;margin-top:14px;align-items:end}
+.lb-f{display:flex;flex-direction:column;gap:3px;min-width:0}
+.lb-fl{font-weight:600;font-size:13.5px}
+.lb-in{display:flex;align-items:center;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding-left:9px}
+.lb-in:focus-within{border-color:var(--accent)}
+.lb-in i{font-style:normal;color:var(--muted)}
+.lb-in input{flex:1;min-width:0;border:0;background:transparent;padding:8px 8px 8px 4px;min-height:38px;font:inherit;font-size:15px;font-variant-numeric:tabular-nums;color:var(--fg);outline:none}
+.lb-pv{display:none}
+.lb-save{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px}
+.lb-tot b{font-size:16px}
+@media (max-width:760px){
+ .lb-costs{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .lb-note{grid-column:1/-1}
+}
+@media (max-width:520px){
+ .lb-sheet{padding:12px}
+ .lb-top{grid-template-columns:1fr 1fr}
+ .lb-title{grid-column:1/-1;grid-row:1;font-size:22px}
+ .lb-veh b,.lb-date b{min-width:0}
+ .lb-sum{margin-left:0;width:100%}
+ .lb-costs{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+ .lb-save .btn{flex:1}
+ .lb-ctl{width:100%}
+ .lb-ctl .lb-dt{flex:1}
+}
+
+/* ---------- Log book: print (only while the Log book screen is open) ----------
+   Only the pages print, one per sheet of paper, black on white, no menu or buttons.
+   Pages without jobs and without costs are left out. Cost boxes print as plain values. */
+/* ---------- Tank pricing, survey + quotation, multi-day jobs, AMC (added 2026-10-08) ---------- */
+/* Type: Cleaning job / Survey visit */
+.ao-kindf{margin-bottom:12px}
+.ao-kindf .sub{margin-top:4px}
+/* The shared tank editor (tank-editor.js), compact on the admin screens: tanks side by side */
+.tk-en{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:8px;align-items:start}
+.tk-en>.tk-hint,.tk-en>.dr-tk-add,.tk-en>.dr-tk-tot,.tk-en>.box{grid-column:1/-1}
+.tk-en .dr-tk{margin-top:0;padding:8px 10px}
+.tk-en .dr-tk-x{min-height:30px;padding:0 10px;font-size:12.5px}
+.tk-en .dr-seg{margin-top:5px;border-radius:9px}
+.tk-en .dr-seg button{min-height:32px;font-size:13px}
+.tk-en .dr-tk-row{margin-top:6px}
+.tk-en .dr-tk-row>i{padding-bottom:8px}
+.tk-en .dr-tk-in input{min-height:36px;font-size:15px;border-width:1px}
+.tk-en .dr-tk-ft{margin-top:6px}
+.tk-en .dr-step button{width:32px;height:32px;font-size:18px}
+.tk-en .dr-step b{font-size:15px}
+.tk-en .dr-tk-l{font-size:13.5px}
+.tk-en .dr-tk-add{min-height:38px;margin-top:0;font-size:14px}
+.tk-en .dr-tk-tot{margin-top:0;font-size:14px}
+.ao-tkf{margin-bottom:12px}
+/* Price breakdown (New order, Edit, Quotation) */
+.ao-pb{border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--alt)}
+.ao-pbh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.ao-pbt{width:100%;border-collapse:collapse;font-size:13.5px}
+.ao-pbt td{padding:3px 0;vertical-align:top}
+.ao-pbt td.num{text-align:right;white-space:nowrap;padding-left:10px}
+.ao-pbt tr.ao-pbtot td{border-top:1px solid var(--line);padding-top:6px}
+.ao-pbt tr.ao-pbc td{color:var(--muted)}
+.ao-pbn{margin-top:4px}
+.ao-pb .err{margin:0}
+/* Pills: survey, days, AMC */
+.pill.ao-sv{background:var(--accent-soft);color:var(--accent);border:1px dashed var(--accent)}
+.pill.ao-days{background:var(--info-bg);color:var(--info)}
+.pill.ao-amcp{background:var(--ok-bg);color:var(--ok)}
+.btn.ao-qb{min-height:28px;padding:2px 10px;font-size:12.5px}
+#ad-orders .ao-tbl td.c-st .btn.ao-qb{margin-top:2px}
+/* AMC visit box on New order */
+.ao-amcbox{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
+.ao-amcbox .lnk{align-self:flex-start;font-size:13px}
+/* Calendar: a survey visit is a dashed chip */
+.cchip.sv .tdot{background:none;border:1.5px dashed var(--muted)}
+/* Quotation dialog */
+.ao-modal.ao-qdlg .ao-dlg{width:min(580px,100%)}
+.ao-qdlg .ao-dlgf{flex-wrap:wrap}
+.ao-qst{margin:0}
+.ao-qh{margin:4px 0 -4px;font-size:14px}
+.ao-qnote{margin:0}
+/* Client card: AMC box */
+.ins-amc .ins-amct{flex:1 1 260px}
+.ins-amcx{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ins-amcx .fsel{width:auto;min-width:160px;min-height:32px;padding:3px 8px}
+.ins-amcf{flex:1 1 100%;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--alt)}
+.ins-amcf .form-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));margin-bottom:6px}
+.ins-amcf .fld input,.ins-amcf .fld select{min-height:34px}
+.ins-amcb{display:flex;gap:6px;margin-top:8px}
+.ins-amch{font-size:12px}
+/* Reports: Quotations and AMC numbers */
+.rp-kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0;font-size:14px}
+.rp-kv dt{color:var(--muted)}
+.rp-kv dd{margin:0;text-align:right}
+
+@media print{
+ @page{size:A4 portrait;margin:12mm}
+ body:has(#ad-logbook:not([hidden])){background:#fff !important;color:#000}
+ body:has(#ad-logbook:not([hidden])) .side,
+ body:has(#ad-logbook:not([hidden])) .frame-foot,
+ body:has(#ad-logbook:not([hidden])) #toasts,
+ body:has(#ad-logbook:not([hidden])) #ad-logbook>header,
+ body:has(#ad-logbook:not([hidden])) .lb-teams,
+ body:has(#ad-logbook:not([hidden])) .lb-sheet.lb-empty,
+ body:has(#ad-logbook:not([hidden])) .lb-in,
+ body:has(#ad-logbook:not([hidden])) .lb-note input,
+ body:has(#ad-logbook:not([hidden])) .lb-save .btn,
+ body:has(#ad-logbook:not([hidden])) .lb-by,
+ body:has(#ad-logbook:not([hidden])) .lb-st,
+ body:has(#ad-logbook:not([hidden])) .lb-none{display:none !important}
+ body:has(#ad-logbook:not([hidden])) .desk-main{display:block}
+ body:has(#ad-logbook:not([hidden])) .content{padding:0}
+ #ad-logbook .lb-list{display:block}
+ #ad-logbook .lb-sheet{break-after:page;page-break-after:always;border:0;box-shadow:none;padding:0;margin:0;background:#fff;color:#000;opacity:1}
+ #ad-logbook .lb-sheet:last-child{break-after:auto;page-break-after:auto}
+ #ad-logbook .lb-sheet *{color:#000 !important;background:transparent !important}
+ #ad-logbook .lb-title{font-size:30px}
+ #ad-logbook .tchip{border:0;padding:0}
+ #ad-logbook .tchip .tdot{display:none}
+ #ad-logbook .lb-tw{overflow:visible}
+ #ad-logbook .lb-tbl{min-width:0;border:2px solid #000;font-size:12.5pt}
+ #ad-logbook .lb-tbl th,#ad-logbook .lb-tbl td{border:1px solid #000;padding:7px 8px}
+ #ad-logbook .lb-tbl tr{break-inside:avoid}
+ #ad-logbook .lb-tbl tbody td{height:14mm}
+ #ad-logbook .lb-pad{display:table-row}
+ #ad-logbook .lb-costs{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:10mm;gap:6mm 10mm}
+ #ad-logbook .lb-note{grid-column:1/-1}
+ #ad-logbook .lb-pv{display:block;min-height:8mm;border-bottom:1.5px solid #000;font-size:13pt;padding:2px 0}
+ #ad-logbook .lb-save{justify-content:flex-end}
+}
+
+/* Log book: saved tank sizes on the client's pinned card and in order bubbles */
+.ins-tanks{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-top:4px;font-size:13px}
+.ins-tanks .num{white-space:nowrap}
+.ins-tk{display:block}

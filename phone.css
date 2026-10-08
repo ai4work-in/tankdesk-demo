@@ -1,0 +1,344 @@
+/* ==========================================================================
+   phone.css: extra styles for the driver and collector screens.
+   The main phone styles (cards, sheet, drawer, checklist) are in styles.css.
+   ========================================================================== */
+
+/* Top line of a page: date / count on the left, refresh button on the right */
+.ph-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.ph-top .sub{min-width:0}
+.ph-top .btn{flex:none}
+
+/* Blue information box (next job, arrival time sent) */
+.box.info{background:var(--info-bg);color:var(--info)}
+/* Grey box under the payment amount (full / partial) */
+.box.note{background:var(--surface2);color:var(--fg)}
+
+/* Links that look like big buttons (Map, Call) */
+a.lnkbtn{display:grid;place-items:center;text-decoration:none;text-align:center;color:inherit}
+
+/* Two buttons side by side, also outside the action block */
+.job .row2,.sheet .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* Date heading in "upcoming", area heading in the collector list */
+.lbl.day-hd{margin:6px 0 -4px;text-transform:none;letter-spacing:0;font-size:13px}
+
+/* Total card at the top of the collector pages */
+.job.tot{background:var(--accent-soft);gap:2px}
+.job .hd .amt{font-size:18px}
+
+/* Payment amount: big input with the "full amount" button next to it */
+.amt-row{display:flex;gap:8px}
+.amt-row .btn{flex:none;min-height:48px}
+.fld input.big-in{min-height:48px;font-size:18px;font-variant-numeric:tabular-nums}
+.sheet .nm{font-weight:700;font-size:16px}
+
+/* Bigger selects in the end-of-day sheet (easy to tap) */
+.sheet .fsel{min-height:44px;font-size:15px}
+
+/* Install button and iPhone hint in the menu */
+.dn.install{color:var(--accent)}
+.ios-hint{font-size:13px;color:var(--muted);padding:8px 10px;border:1px dashed var(--line);border-radius:10px;margin:6px 0}
+
+/* ==========================================================================
+   COLLECTOR (chat style). Used only by collector.js.
+   ========================================================================== */
+/* Padding for loading / error boxes (the phone body itself has no padding) */
+.co-pad{padding:12px;display:flex;flex-direction:column;gap:12px}
+/* Area chips: one line that scrolls sideways.
+   FIX: the page body is a flex column, and a sideways-scrolling row may shrink in it,
+   so the chips were squashed to a thin strip under the total line. flex:none keeps
+   the row at its full height. */
+.wa-chips.co-areas{flex:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding:10px 12px 8px;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.wa-chips.co-areas::-webkit-scrollbar{display:none}
+.wa-chips.co-areas button{flex:none;white-space:nowrap;min-height:40px}
+/* Picked area: filled colour, bold, with a tick in front */
+.wa-chips.co-areas button[aria-pressed="true"]{font-weight:700}
+.wa-chips.co-areas button[aria-pressed="true"]::before{content:"✓ "}
+/* "કુલ બાકી ₹X · N ગ્રાહક" line above the list (never squashed either) */
+.co-total{flex:none;padding:6px 14px 8px;font-size:14px;color:var(--muted);border-bottom:1px solid var(--line)}
+.co-total b{color:var(--fg);font-size:16px}
+/* Balance in the time spot of each row: bigger and bold */
+.co-list .wa-row .tm{font-size:15px}
+/* Big amount in the office's first message */
+.bub .co-big{font-size:18px}
+.bub .kv{margin:6px 0 0}
+/* Bottom of the payment chat: mode chips, message box, hint */
+.co-pay{background:var(--wall);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.wa-chips.co-modes{flex-wrap:nowrap;overflow-x:auto;padding:8px 10px 0;scrollbar-width:none}
+.wa-chips.co-modes::-webkit-scrollbar{display:none}
+.wa-chips.co-modes button{flex:none;white-space:nowrap}
+/* The message box holds two lines: amount (with "પૂરી રકમ") and an optional note */
+.wa-compose .box-in.co-box{flex-direction:column;align-items:stretch;gap:0;border-radius:22px;padding:2px 8px 2px 14px}
+.co-amt-line{display:flex;align-items:center;gap:6px;min-width:0}
+.co-rs{font-weight:700;font-size:18px;color:var(--muted)}
+.wa-compose #co-amt{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.co-full{flex:none;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:16px;
+  font:inherit;font-size:13px;font-weight:700;padding:5px 10px;cursor:pointer}
+.wa-compose .co-note-in{font-size:14px;padding:6px 0 8px;border-top:1px solid var(--line)}
+.co-hint{padding:0 14px 8px;font-size:13px;color:var(--muted)}
+/* Amount more than the balance: red, normal size, right under the box */
+.co-hint.co-err{color:var(--bad);font-size:15px;font-weight:700}
+.wa-compose .box-in.co-box:has(#co-amt[aria-invalid="true"]){box-shadow:0 0 0 2px var(--bad)}
+/* Per-mode totals on "આજનું કલેક્શન" (for the cash hand-over) */
+.co-modesum{flex:none;display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px 10px;border-bottom:1px solid var(--line)}
+.co-ms{background:var(--surface2);color:var(--fg);border-radius:14px;padding:4px 10px;font-size:14px}
+.co-ms b{font-variant-numeric:tabular-nums}
+.co-ms.cash{background:var(--ok-bg);color:var(--ok)}
+
+/* ==========================================================================
+   DRIVER: WhatsApp-style chat list and job chat (driver.js)
+   The shared chat pieces are in chat.css; these are driver-only extras.
+   ========================================================================== */
+
+/* FIX: "pad" is also the PIN keypad class in styles.css (a 3-column grid).
+   On #ph-body it must stay a normal column, so undo the grid here. */
+.phone .ph-body.pad{display:flex;flex-direction:column;grid-template-columns:none}
+
+/* A padded block inside an edge-to-edge list (loading, empty, errors) */
+.dr-pad{padding:12px}
+.ph-body>.wa-sys{margin:14px auto}
+
+/* The coloured status at the start of a row's second line */
+.dr-st.ok{color:var(--tick);font-weight:600}
+.dr-st.warn{color:var(--warn);font-weight:600}
+.dr-st.bad{color:var(--bad);font-weight:600}
+
+/* Thin ring round the initials in the chat header (they can be the same blue as the header) */
+#ph-chat .wa-head .wa-av{box-shadow:0 0 0 2px rgba(255,255,255,.6)}
+/* Header icons that are links (Call, Map) */
+.wa-head a.wa-ib{text-decoration:none}
+
+/* Job card bubble: list of services */
+.bub .dr-svc{margin:2px 0 6px;padding-left:18px}
+.bub .kv dd a{font-weight:600}
+/* Small label above the chips */
+.dr-lbl{display:block;font-size:12.5px;color:var(--muted);font-weight:600;margin:8px 0 4px}
+/* Send button inside the "I will be late" bubble */
+.dr-send{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:10px;min-height:44px;border:0;border-radius:22px;
+  background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:700;font-size:15px;cursor:pointer}
+.dr-send svg{width:18px;height:18px}
+.dr-send:disabled{opacity:.5}
+
+/* Checklist inside the chat: tap a service to tick it */
+.dr-cks{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.dr-ck{display:flex;align-items:center;gap:10px;min-height:44px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;
+  background:var(--surface);color:var(--fg);font:inherit;font-size:15px;text-align:left;cursor:pointer}
+.dr-ck i{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;color:transparent}
+.dr-ck i svg{width:16px;height:11px}
+.dr-ck[aria-pressed="true"]{border-color:var(--accent)}
+.dr-ck[aria-pressed="true"] i{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.bub .box{margin-top:8px}
+
+/* "Work done" bubble: ✓ done, ✗ not done */
+.dr-done{display:flex;flex-direction:column;margin-top:2px}
+.dr-done .ok{color:var(--ok)}
+.dr-done .no{color:var(--bad);font-weight:600}
+/* Next job bubble */
+.bub.dr-next{box-shadow:inset 3px 0 0 var(--accent),0 1px .5px rgba(0,0,0,.13)}
+
+/* Profile page */
+.dr-me{display:flex;align-items:center;gap:14px}
+.dr-me .wa-av{width:60px;height:60px;font-size:18px}
+.dr-me b{display:block;font-family:var(--f-display);font-size:18px}
+.dr-me div span{color:var(--muted);font-size:14px}
+.dr-kv{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;margin:0;padding:12px;border:1px solid var(--line);border-radius:14px;font-size:15px}
+.dr-kv dt{color:var(--muted)}
+.dr-kv dd{margin:0;font-weight:600;min-width:0}
+
+/* End-of-day sheet */
+.dr-de-hd{display:flex;align-items:center;gap:10px}
+.dr-de{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.dr-de-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.dr-de-sel{display:grid;grid-template-columns:1fr;gap:6px;margin-top:4px}
+.dr-de-sel .fsel{min-width:0;width:100%}
+
+/* ==========================================================================
+   COLLECTOR (continued): sending a payment. Used only by collector.js.
+   ========================================================================== */
+/* Payment on its way (clock), or failed (red, tap to send again) */
+.bub .co-clock{display:inline-flex;color:var(--bub-meta)}
+.bub .co-clock svg{width:12px;height:12px}
+.bub.co-fail{cursor:pointer}
+.co-failtxt{display:block;color:var(--bad);font-size:12.5px;font-weight:700;margin-top:2px}
+/* Quiet line in place of the message box while a payment is on its way */
+.co-pay.co-wait{padding:14px;text-align:center;font-size:13px;color:var(--muted)}
+/* "updating…" in the total line */
+.co-upd{font-size:12.5px;color:var(--muted)}
+/* Confirm sheet: "₹2,000 · UPI · name" in big text, then "હા, સેવ કરો" / "બદલો".
+   It covers the whole chat, so nothing behind it can be tapped by mistake. */
+.co-cf{position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,.45)}
+.co-cf-card{background:var(--surface);color:var(--fg);border-radius:18px 18px 0 0;padding:18px 16px;
+  padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px;box-shadow:0 -4px 16px rgba(0,0,0,.2)}
+.co-cf-q{font-size:14px;color:var(--muted);font-weight:600}
+.co-cf-amt{font-family:var(--f-display);font-size:30px;font-weight:800;line-height:1.2;font-variant-numeric:tabular-nums}
+.co-cf-nm{font-size:19px;font-weight:700}
+.co-cf-note{font-size:14px;color:var(--muted)}
+.co-cf-left{font-size:17px;margin-top:4px}
+.co-cf-left.full{color:var(--ok)}
+.co-cf-warn{background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:16px;border-radius:10px;padding:8px 12px;margin-top:4px}
+.co-cf-btns{display:grid;grid-template-columns:1fr 1.4fr;gap:10px;margin-top:12px}
+.co-cf-btns button{min-height:54px;border-radius:27px;font:inherit;font-size:17px;font-weight:700;cursor:pointer}
+.co-cf-no{border:2px solid var(--line);background:var(--surface);color:var(--fg)}
+.co-cf-yes{border:0;background:var(--accent);color:var(--accent-ink)}
+.co-cf-btns button:disabled{opacity:.45;cursor:default}
+
+/* Sending (clock), not sent (red, "send again") and "updating…" in the header */
+.bub .meta .dr-clock{display:inline-grid;place-items:center;color:var(--bub-meta)}
+.bub .meta .dr-clock svg{width:13px;height:13px}
+.bub.dr-fail{background:var(--bad-bg)}
+.dr-retry{display:block;width:100%;margin-top:6px;min-height:38px;border:1px solid var(--bad);border-radius:18px;background:var(--surface);
+  color:var(--bad);font:inherit;font-weight:700;font-size:14px;cursor:pointer}
+.dr-upd{font-style:normal;opacity:.85}
+
+/* "New version ready · Reload" notice (sent by sw.js). Sits at the top so it never hides the buttons. */
+#td-update{position:fixed;left:50%;transform:translateX(-50%);top:calc(116px + env(safe-area-inset-top,0px));z-index:60;
+  display:flex;align-items:center;gap:12px;max-width:calc(100% - 32px)}
+#td-update .lnk{color:var(--green);font-size:14px;min-height:32px}
+
+/* ==========================================================================
+   DRIVER: safe taps and sun-readable sizes (driver.js)
+   ".dr-on" is put on #v-phone only while a DRIVER is logged in, so these
+   bigger sizes never change the collector screens.
+   Every tap target here is at least 48px tall. Colours: variables only.
+   ========================================================================== */
+
+/* Header icons, tabs and menu items: 48px */
+.dr-on #ph-head .wa-ib,.dr-on #ph-chat .wa-head .wa-ib{width:48px;height:48px}
+.dr-on .wa-tabs button{min-height:48px}
+.dr-on .dn{min-height:48px}
+.dr-on .sheet .btn{min-height:52px}
+
+/* Today list: bigger status line, time and "હવે" badge */
+.dr-on .wa-row{min-height:68px}
+.dr-on .wa-row .pv{font-size:15px}
+.dr-on .wa-row .tm{font-size:14.5px;font-weight:700;color:var(--fg)}
+.dr-on .wa-row .tm.hot{color:var(--accent)}
+.dr-on .wa-row .bd{font-size:14px;line-height:26px;min-width:26px;padding:0 10px}
+.dr-on .dr-st{font-weight:700}
+
+/* Honest day summary ("આજે: 2 પૂર્ણ · 1 થોડું બાકી · 1 ખસેડ્યું") */
+.dr-sum{margin:10px 12px 4px;padding:12px 14px;border-radius:12px;font-size:16px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.dr-sum.ok{background:var(--ok-bg);color:var(--ok)}
+.dr-sum.warn{background:var(--warn-bg);color:var(--warn)}
+.dr-sum span{font-weight:700}
+/* Moved jobs and the end-of-day row: separate blocks under the jobs */
+.dr-moved .wa-av{opacity:.75}
+.dr-endrow{margin-top:14px;border-top:8px solid var(--wall)}
+
+/* Job chat header: Call and Map with a word under the icon */
+.dr-on #ph-chat .wa-head a.dr-hb{width:auto;min-width:50px;height:52px;border-radius:12px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:1px;padding:0 4px}
+.dr-on #ph-chat .wa-head a.dr-hb svg{width:21px;height:21px}
+.dr-hb span{font-size:11.5px;font-weight:700;line-height:1.1;color:var(--head-ink)}
+/* Phone number link in the job card: bigger tap area without a taller row */
+.dr-on #ph-chat .bub .kv dd a{display:inline-block;padding:14px 0;margin:-14px 0}
+
+/* Buttons at the bottom of the job chat */
+.dr-on #ph-chat .wa-qr button,.dr-on #ph-chat .wa-qr a{min-height:54px;font-size:16px}
+
+/* "I will be late" picker: big chips, a preview of the customer message */
+.bub.dr-late .wa-chips button{min-height:48px;padding:8px 14px;font-size:15px}
+.dr-prev{margin-top:10px;padding:8px 10px;border-radius:10px;background:var(--surface2);font-size:14px;line-height:1.45}
+.dr-prev .dr-lbl{margin-top:0}
+.dr-prev .dr-eta{display:block;margin-top:4px;font-size:15.5px;color:var(--accent)}
+.dr-prev.muted,.dr-prev .muted{color:var(--muted)}
+.dr-prev .muted{display:block;margin-top:2px}
+.dr-on .dr-send{min-height:52px;font-size:16px}
+.dr-on .dr-send:disabled{opacity:1;background:var(--surface2);color:var(--muted);cursor:default}
+
+/* Checklist and "send again": 48px */
+.dr-on .dr-ck{min-height:50px}
+.dr-on .dr-retry{min-height:48px}
+
+/* End-of-day sheet: big selects, the question before ending early */
+.dr-on .dr-de-sel .fsel{min-height:48px;font-size:15.5px}
+.dr-de-hint{font-size:14px;color:var(--warn);font-weight:600}
+.dr-ask{margin:0;font-size:17px;font-weight:700;line-height:1.5}
+.dr-on .sheet .btn:disabled{opacity:.5;cursor:default}
+
+/* The 5-second "રદ કરો · 5" (undo) bar at the bottom of the phone */
+#dr-undo{position:absolute;left:0;right:0;bottom:0;z-index:8;display:flex;align-items:center;gap:10px;
+  padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);
+  box-shadow:0 -6px 20px rgba(0,0,0,.25)}
+.dr-undo-t{flex:1;min-width:0;font-size:14px;font-weight:600;line-height:1.3}
+#dr-undo button{flex:none;min-height:56px;min-width:150px;padding:0 18px;border:2px solid var(--bg);border-radius:28px;
+  background:var(--bg);color:var(--fg);font:inherit;font-size:18px;font-weight:700;cursor:pointer}
+#dr-undo button b{font-variant-numeric:tabular-nums}
+
+/* ---------- customers WITHOUT WhatsApp (driver and collector) ----------
+   A clear badge "WhatsApp નથી · ફોન કરો", a big green call button, the words to say,
+   and the two "customer agrees / disagrees" buttons after the work. */
+.dr-nowa{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--warn-bg);color:var(--warn);
+  font-size:12.5px;font-weight:700;line-height:1.5;white-space:nowrap}
+.dr-nowa-t{margin:6px 0 2px;font-size:14.5px;line-height:1.45}
+.bub.dr-callb{box-shadow:inset 3px 0 0 var(--warn),0 1px .5px rgba(0,0,0,.13)}
+.dr-say{margin:6px 0 2px;padding:8px 10px;border-radius:10px;background:var(--surface2);font-size:15px;line-height:1.5}
+.dr-call{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:8px;min-height:48px;border-radius:24px;
+  background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:15.5px;text-decoration:none}
+.bub a.dr-call,.dr-call span,.dr-call svg{color:var(--accent-ink)}
+.dr-call svg{width:19px;height:19px;flex:none}
+.dr-on .dr-call{min-height:52px;font-size:16px}
+/* Call button in the chat header: green when the customer has no WhatsApp */
+.dr-on #ph-chat .wa-head a.dr-hb.dr-hot{background:var(--accent)}
+.dr-hb.dr-hot span{color:var(--accent-ink)}
+.dr-hb.dr-hot svg{color:var(--accent-ink)}
+/* "ગ્રાહક સંમત ✓" / "ગ્રાહક અસંમત ✗" */
+.dr-cf{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:2px 0 8px}
+.dr-cf button{min-height:52px;border-radius:14px;font:inherit;font-size:16px;font-weight:700;cursor:pointer;padding:4px 8px}
+.dr-cf-yes{border:2px solid var(--accent);background:var(--accent);color:var(--accent-ink)}
+.dr-cf-no{border:2px solid var(--bad);background:var(--surface);color:var(--bad)}
+.dr-cf button:disabled{opacity:.5;cursor:default}
+/* Collector: payment chat and confirm sheet for a client without WhatsApp */
+.co-nowa{margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:14.5px;line-height:1.45}
+
+/* ---------- log book at "work done" (driver, added 2026-10-08) ----------
+   "કોણે કામ કર્યું?" worker chips and the "ટાંકીનું માપ" tank editor. Big targets, big numbers. */
+.bub.dr-log{box-shadow:inset 3px 0 0 var(--accent),0 1px .5px rgba(0,0,0,.13)}
+.dr-crew{margin:6px 0 10px}
+.dr-on .dr-crew button{min-height:48px;padding:8px 16px;font-size:16px;font-weight:600}
+.dr-tk-t{display:block;margin-top:4px}
+.dr-tk{margin-top:8px;padding:8px 10px 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.dr-tk-h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.dr-tk-x{min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:20px;background:var(--surface);color:var(--bad);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+/* two-way toggles: OH / UG and litres / size */
+.dr-seg{display:grid;grid-template-columns:1fr 1fr;margin-top:6px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.dr-seg button{min-height:46px;border:0;background:var(--surface);color:var(--fg);font:inherit;font-size:15px;font-weight:600;cursor:pointer;padding:4px 6px}
+.dr-seg button+button{border-left:1px solid var(--line)}
+.dr-seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.dr-tk-row{display:flex;align-items:flex-end;gap:6px;margin-top:8px}
+.dr-tk-row>i{flex:none;font-style:normal;font-size:18px;font-weight:700;color:var(--muted);padding-bottom:12px}
+.dr-tk-in{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.dr-tk-in span{font-size:12.5px;color:var(--muted);font-weight:600}
+.dr-tk-in input{width:100%;min-width:0;min-height:50px;padding:6px 8px;border:2px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);
+  font:inherit;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;text-align:center}
+.dr-tk-in input:focus{outline:none;border-color:var(--accent)}
+.dr-tk-ft{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;flex-wrap:wrap}
+.dr-step{display:flex;align-items:center;gap:8px}
+.dr-step .dr-lbl{margin:0}
+.dr-step button{width:46px;height:46px;border:1px solid var(--line);border-radius:50%;background:var(--surface2);color:var(--fg);font:inherit;font-size:22px;font-weight:700;cursor:pointer;line-height:1}
+.dr-step button:disabled{opacity:.4;cursor:default}
+.dr-step b{min-width:24px;text-align:center;font-size:19px}
+.dr-tk-l{font-size:16px;font-weight:700;color:var(--accent)}
+.dr-tk-add{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:8px;min-height:48px;border:2px dashed var(--accent);
+  border-radius:12px;background:transparent;color:var(--accent);font:inherit;font-size:15.5px;font-weight:700;cursor:pointer}
+.dr-tk-add svg{width:18px;height:18px}
+.dr-tk-tot{margin-top:6px;font-size:16px;font-weight:700;text-align:right}
+.dr-tk-tot:empty{display:none}
+/* crew and tanks inside the "work done" message */
+.dr-crewl{margin-top:6px}
+.dr-crewl .dr-lbl{margin:0 0 1px}
+.dr-tkline{display:block;font-variant-numeric:tabular-nums}
+
+/* ---------- jobs over several days, AMC label, shared tank editor, supervisor (added 2026-10-08) ---------- */
+/* "દિવસ 2 / 3" and "AMC 2/4" chips on a job row and in the chat */
+.dr-day,.dr-amc{display:inline-block;padding:0 7px;border-radius:9px;font-size:12.5px;font-weight:700;line-height:20px;white-space:nowrap;vertical-align:1px}
+.dr-day{background:var(--accent-soft);color:var(--accent)}
+.dr-amc{background:var(--info-bg);color:var(--info)}
+/* the partition hint under "ટાંકીનું માપ" */
+.tk-hint{margin:2px 0 2px;line-height:1.35}
+/* supervisor: the note box under the tanks */
+.sv-note{display:block;margin-top:10px}
+.sv-note textarea{width:100%;min-height:64px;padding:8px 10px;border:2px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);
+  font:inherit;font-size:16px;resize:vertical}
+.sv-note textarea:focus{outline:none;border-color:var(--accent)}
