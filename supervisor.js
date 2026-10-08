@@ -1,5 +1,5 @@
 /* ==========================================================================
-   supervisor.js: the SUPERVISOR screens (Gujarati), added 2026-10-08.
+   supervisor.js: the SUPERVISOR screens (Gujarati, or English when chosen), added 2026-10-08.
    The supervisor visits a client BEFORE the cleaning, measures every tank and
    sends the measurements. The office then makes the quotation (price) and
    sends it to the client. The supervisor never sees any money.
@@ -11,8 +11,9 @@
    Like the driver: the message shows at once, a 5-second "રદ કરો" bar lets the
    supervisor take it back, then it goes to the server (survey.submit).
 
-   Uses shared helpers from driver.js (loaded before this file): labGu, guErr,
-   telUrl, drHold (the 5-second undo), drFlush, Phone.reload, areaGu, typeGu.
+   Uses shared helpers from driver.js (loaded before this file): guErr,
+   telUrl, drHold (the 5-second undo), drFlush, Phone.reload, areaT, typeT,
+   and from common.js: labT, tr, TX (the words in Gujarati or English).
    Server: order.list (surveys only, no money), survey.submit {order_id, tanks, notes}.
    ========================================================================== */
 
@@ -74,6 +75,11 @@ function svClearSent() {
   });
 }
 Phone.reload.supervisor = svLoad;
+// Language switched (app.js): the open survey chat and the undo bar in the new words
+Phone.relang.supervisor = () => {
+  if (SV.chat != null && WA.chatOpen()) svShowChat(SV.chat, 'force');
+  drUndoRelang();
+};
 
 // Draw the list again (and the open chat), if the supervisor is still on a supervisor page
 function svShow(how) {
@@ -94,14 +100,14 @@ function svReady(el) {
     WA.closeChat();
   }
   if (SV.orders) return true;
-  if (SV.error) el.innerHTML = '<div class="dr-pad"><div class="box bad">' + esc(SV.error) + '</div><button class="btn lg" data-act="ph-refresh">' + GU.try_again + '</button></div>';
-  else { el.innerHTML = '<div class="dr-pad"><div class="empty">' + GU.loading + '</div></div>'; svLoad(); }
+  if (SV.error) el.innerHTML = '<div class="dr-pad"><div class="box bad">' + esc(SV.error) + '</div><button class="btn lg" data-act="ph-refresh">' + TX.try_again + '</button></div>';
+  else { el.innerHTML = '<div class="dr-pad"><div class="empty">' + TX.loading + '</div></div>'; svLoad(); }
   return false;
 }
 
 const byWhen = (a, b) => a.sched_date === b.sched_date ? mins(a.sched_time) - mins(b.sched_time) : (a.sched_date < b.sched_date ? -1 : 1);
-// "આજે" or the Gujarati date
-const svDay = d => d === todayIso() ? 'આજે' : labGu(d);
+// "today" or the date
+const svDay = d => d === todayIso() ? TX.today : labT(d);
 
 // One chat-list row
 function svRow(o, done) {
@@ -111,8 +117,9 @@ function svRow(o, done) {
     time: done ? svDay(o.sched_date) : svDay(o.sched_date) + ' · ' + fm(mins(o.sched_time)),
     timeHot: !done && o.sched_date === todayIso(),
     preview: done
-      ? '<span class="dr-st ok">✓✓ માપ મોકલ્યું</span> · ' + n + ' ટાંકી · ' + esc(litresText(tanksTotal(o.tanks))) + ' લિટર'
-      : (o.sched_date < todayIso() ? '<span class="dr-st bad">બાકી</span> · ' : '') + esc(areaGu(o.area)) + ' · ' + esc(o.address || ''),
+      ? '<span class="dr-st ok">' + tr('✓✓ માપ મોકલ્યું', '✓✓ Sizes sent') + '</span> · ' + tr(n + ' ટાંકી', n + (n === 1 ? ' tank' : ' tanks')) + ' · ' +
+        esc(litresText(tanksTotal(o.tanks))) + ' ' + TX.litres
+      : (o.sched_date < todayIso() ? '<span class="dr-st bad">' + tr('બાકી', 'Overdue') + '</span> · ' : '') + esc(areaT(o.area)) + ' · ' + esc(o.address || ''),
     act: 'sv-open', data: { id: o.order_id }, avatarColor: WA.colorFor(o.client_name)
   });
 }
@@ -122,10 +129,10 @@ registerScreen('supervisor', 'todo', el => {
   if (!svReady(el)) return;
   const L = svList().filter(o => o.status !== 'done').sort(byWhen);
   setTabCount('todo', L.length);
-  let h = WA.sec(labGu(todayIso()) + ' · ' + L.length + ' સર્વે બાકી');
+  let h = WA.sec(labT(todayIso()) + ' · ' + tr(L.length + ' સર્વે બાકી', L.length + (L.length === 1 ? ' survey' : ' surveys') + ' to do'));
   if (SV.error) h += '<div class="dr-pad"><div class="box bad">' + esc(SV.error) + '</div></div>';
   h += L.length ? '<div class="wa-list">' + L.map(o => svRow(o, false)).join('') + '</div>'
-    : '<div class="dr-pad"><div class="empty">હમણાં કોઈ સર્વે બાકી નથી.</div></div>';
+    : '<div class="dr-pad"><div class="empty">' + tr('હમણાં કોઈ સર્વે બાકી નથી.', 'No surveys to do right now.') + '</div></div>';
   el.innerHTML = h;
 });
 
@@ -134,8 +141,8 @@ registerScreen('supervisor', 'done', el => {
   if (!svReady(el)) return;
   setTabCount('todo', svList().filter(o => o.status !== 'done').length);
   const L = svList().filter(o => o.status === 'done').sort(byWhen).reverse();
-  el.innerHTML = L.length ? WA.sec('છેલ્લા 7 દિવસ') + '<div class="wa-list">' + L.map(o => svRow(o, true)).join('') + '</div>'
-    : '<div class="dr-pad"><div class="empty">હજી કોઈ માપ મોકલ્યું નથી.</div></div>';
+  el.innerHTML = L.length ? WA.sec(tr('છેલ્લા 7 દિવસ', 'Last 7 days')) + '<div class="wa-list">' + L.map(o => svRow(o, true)).join('') + '</div>'
+    : '<div class="dr-pad"><div class="empty">' + tr('હજી કોઈ માપ મોકલ્યું નથી.', 'No sizes sent yet.') + '</div></div>';
 });
 
 /* ---------- the survey chat ---------- */
@@ -143,47 +150,48 @@ function svChatParts(o) {
   const id = o.order_id, p = SV.pending[id];
   const head = WA.chatHead({
     title: o.client_name,
-    sub: areaGu(o.area) + ' · ' + svDay(o.sched_date) + ' · ' + fm(mins(o.sched_time)),
+    sub: areaT(o.area) + ' · ' + svDay(o.sched_date) + ' · ' + fm(mins(o.sched_time)),
     back: 'sv-back',
     avatarColor: WA.colorFor(o.client_name),
-    right: '<a class="wa-ib dr-hb" href="' + esc(telUrl(o.phone)) + '" aria-label="કૉલ કરો">' + WA.icons.call + '<span>કૉલ</span></a>' +
-      '<a class="wa-ib dr-hb" href="' + esc(mapUrl(o)) + '" target="_blank" rel="noopener" aria-label="નકશો ખોલો">' + WA.icons.map + '<span>નકશો</span></a>'
+    right: '<a class="wa-ib dr-hb" href="' + esc(telUrl(o.phone)) + '" aria-label="' + esc(TX.call_aria) + '">' + WA.icons.call + '<span>' + TX.call_short + '</span></a>' +
+      '<a class="wa-ib dr-hb" href="' + esc(mapUrl(o)) + '" target="_blank" rel="noopener" aria-label="' + esc(tr('નકશો ખોલો', 'Open map')) + '">' + WA.icons.map + '<span>' + TX.map_short + '</span></a>'
   });
   const kv = (k, v) => v ? '<dt>' + k + '</dt><dd>' + v + '</dd>' : '';
   let m = WA.day(svDay(o.sched_date)) +
-    WA.bubble('in', '<b>ટાંકીનું માપ લેવા જવાનું છે</b><dl class="kv">' +
-      kv('સમય', esc(svDay(o.sched_date) + ' · ' + fm(mins(o.sched_time)))) +
-      kv('ગ્રાહક', esc(o.client_name)) +
-      kv('સરનામું', esc(o.address)) +
-      kv('વિસ્તાર', esc(areaGu(o.area))) +
-      kv('પ્રકાર', esc(typeGu(o.client_type))) +
-      kv('ફોન', '<a href="' + telUrl(o.phone) + '">' + esc(phoneText(o.phone)) + '</a>') + '</dl>' +
-      '<div class="sub">દરેક ટાંકી માપો. ઓફિસ તેના પરથી ભાવ નક્કી કરીને ગ્રાહકને મોકલશે.</div>', '', { who: DR_OFFICE });
-  if (o.notes) m += WA.bubble('in', '<b>નોંધ:</b> ' + esc(o.notes), '', { who: DR_OFFICE, cls: 'warn' });
+    WA.bubble('in', '<b>' + tr('ટાંકીનું માપ લેવા જવાનું છે', 'Go and measure the tanks') + '</b><dl class="kv">' +
+      kv(TX.time, esc(svDay(o.sched_date) + ' · ' + fm(mins(o.sched_time)))) +
+      kv(TX.customer, esc(o.client_name)) +
+      kv(TX.address, esc(o.address)) +
+      kv(TX.area, esc(areaT(o.area))) +
+      kv(TX.type, esc(typeT(o.client_type))) +
+      kv(TX.phone, '<a href="' + telUrl(o.phone) + '">' + esc(phoneText(o.phone)) + '</a>') + '</dl>' +
+      '<div class="sub">' + tr('દરેક ટાંકી માપો. ઓફિસ તેના પરથી ભાવ નક્કી કરીને ગ્રાહકને મોકલશે.', 'Measure every tank. The office will work out the price and send it to the customer.') + '</div>', '', { who: TX.office });
+  if (o.notes) m += WA.bubble('in', '<b>' + TX.note + ':</b> ' + esc(o.notes), '', { who: TX.office, cls: 'warn' });
 
-  const tanksHtml = list => (list || []).map(t => '<span class="dr-tkline">' + esc(tankTextGu(t)) + '</span>').join('') +
-    ((list || []).length > 1 ? '<span class="dr-tkline"><b>કુલ ' + litresText(tanksTotal(list)) + ' લિટર</b></span>' : '');
+  const tanksHtml = list => (list || []).map(t => '<span class="dr-tkline">' + esc(tankTextT(t)) + '</span>').join('') +
+    ((list || []).length > 1 ? '<span class="dr-tkline"><b>' + tr('કુલ ', 'Total ') + litresText(tanksTotal(list)) + ' ' + TX.litres + '</b></span>' : '');
   let bottom = '';
   if (o.status === 'done') {
     // Sent (or being sent): the measurements as an outgoing message
     const sending = svBusy(id);
-    const b = WA.bubble('out', '<b>ટાંકીનું માપ</b><div class="dr-crewl">' + tanksHtml(o.tanks) + '</div>' +
-      (p && p.notes ? '<div class="sub">નોંધ: ' + esc(p.notes) + '</div>' : ''), p ? fm(p.at) : '', { ticks: 2 });
-    m += sending ? b.replace(WA.icons.ticks, '<i class="dr-clock" aria-label="મોકલાય છે">' + ICON_CLOCK + '</i>') : b;
-    if (!sending) m += WA.bubble('in', 'માપ મળી ગયું ✓<br>ઓફિસ ભાવ નક્કી કરીને ગ્રાહકને મોકલશે.', '', { who: DR_OFFICE });
-    bottom = WA.quick([{ label: 'યાદી પર પાછા જાઓ', act: 'sv-back', cls: 'full', disabled: sending }]);
+    const b = WA.bubble('out', '<b>' + TX.tank_sizes + '</b><div class="dr-crewl">' + tanksHtml(o.tanks) + '</div>' +
+      (p && p.notes ? '<div class="sub">' + TX.note + ': ' + esc(p.notes) + '</div>' : ''), p ? fm(p.at) : '', { ticks: 2 });
+    m += sending ? b.replace(WA.icons.ticks, '<i class="dr-clock" aria-label="' + esc(TX.sending) + '">' + ICON_CLOCK + '</i>') : b;
+    if (!sending) m += WA.bubble('in', tr('માપ મળી ગયું ✓<br>ઓફિસ ભાવ નક્કી કરીને ગ્રાહકને મોકલશે.', 'Sizes received ✓<br>The office will work out the price and send it to the customer.'), '', { who: TX.office });
+    bottom = WA.quick([{ label: TX.back_to_list, act: 'sv-back', cls: 'full', disabled: sending }]);
   } else {
     if (p && p.state === 'failed') {
-      m += WA.bubble('out', '<b>ટાંકીનું માપ</b><div class="dr-crewl">' + tanksHtml(p.tanks) + '</div>' +
-        '<button class="dr-retry" data-act="sv-retry" data-id="' + id + '">⚠ મોકલાયું નહીં · ફરી મોકલો</button>', fm(p.at), { cls: 'bad dr-fail' });
+      m += WA.bubble('out', '<b>' + TX.tank_sizes + '</b><div class="dr-crewl">' + tanksHtml(p.tanks) + '</div>' +
+        '<button class="dr-retry" data-act="sv-retry" data-id="' + id + '">⚠ ' + TX.not_sent_retry + '</button>', fm(p.at), { cls: 'bad dr-fail' });
     }
-    m += WA.bubble('in', '<b class="dr-tk-t">ટાંકીનું માપ</b>' +
-      '<div class="sub">દરેક ટાંકી: ઉપરની કે અંડરગ્રાઉન્ડ, સિમેન્ટ કે પ્લાસ્ટિક, પછી લિટર અથવા માપ (મીટર).</div>' +
-      TankEd.html(svKey(id), o.tanks, { lang: 'gu' }) +
-      '<label class="sv-note"><span class="dr-lbl">નોંધ (જરૂરી હોય તો)</span>' +
-      '<textarea rows="2" data-inp="sv-note" data-id="' + id + '" placeholder="જેમ કે: ટાંકી સુધી જવા સીડી જોઈએ">' + esc(SV.notes[id] || '') + '</textarea></label>',
-      '', { who: DR_OFFICE, cls: 'dr-log' });
-    bottom = WA.quick([{ label: GU.send_measure, act: 'sv-send', data: { id: id }, cls: 'pri full', icon: 'send' }]);
+    m += WA.bubble('in', '<b class="dr-tk-t">' + TX.tank_sizes + '</b>' +
+      '<div class="sub">' + tr('દરેક ટાંકી: ઉપરની કે અંડરગ્રાઉન્ડ, સિમેન્ટ કે પ્લાસ્ટિક, પછી લિટર અથવા માપ (મીટર).',
+        'Each tank: overhead or underground, cement or plastic, then litres or size (metres).') + '</div>' +
+      TankEd.html(svKey(id), o.tanks, { lang: uiLang() }) +
+      '<label class="sv-note"><span class="dr-lbl">' + tr('નોંધ (જરૂરી હોય તો)', 'Note (if needed)') + '</span>' +
+      '<textarea rows="2" data-inp="sv-note" data-id="' + id + '" placeholder="' + esc(tr('જેમ કે: ટાંકી સુધી જવા સીડી જોઈએ', 'e.g. a ladder is needed to reach the tank')) + '">' + esc(SV.notes[id] || '') + '</textarea></label>',
+      '', { who: TX.office, cls: 'dr-log' });
+    bottom = WA.quick([{ label: TX.send_measure, act: 'sv-send', data: { id: id }, cls: 'pri full', icon: 'send' }]);
   }
   return { head: head, msgs: m, bottom: bottom };
 }
@@ -192,7 +200,7 @@ function svChatParts(o) {
 function svShowChat(id, how) {
   const o = svOrder(id);
   if (!o) {
-    if (WA.chatOpen()) { svCloseChat(); toast('આ સર્વે હવે તમારી યાદીમાં નથી.'); }
+    if (WA.chatOpen()) { svCloseChat(); toast(tr('આ સર્વે હવે તમારી યાદીમાં નથી.', 'This survey is no longer in your list.')); }
     return;
   }
   const p = svChatParts(o), html = p.head + p.msgs + p.bottom;
@@ -223,7 +231,7 @@ onAct('sv-send', btn => {
   if (!o || svBusy(id)) return;
   const tk = TankEd.out(svKey(id));
   if (tk.error) { TankEd.setError(svKey(id), tk.error); toast(tk.error); return; }
-  if (!tk.tanks.length) { const e = 'ઓછામાં ઓછી એક ટાંકીનું માપ લખો.'; TankEd.setError(svKey(id), e); toast(e); return; }
+  if (!tk.tanks.length) { const e = tr('ઓછામાં ઓછી એક ટાંકીનું માપ લખો.', 'Enter the size of at least one tank.'); TankEd.setError(svKey(id), e); toast(e); return; }
   const p = SV.pending[id] = { state: 'wait', at: nowMin(), tanks: tk.tanks, notes: String(SV.notes[id] || '').trim() };
   svShow('force');
   svShowChat(id, 'force');
@@ -247,7 +255,7 @@ async function svPost(id, p) {
     p.state = 'sent';
     TankEd.reset(svKey(id));
     delete SV.notes[id];
-    if (!WA.chatOpen()) toast('માપ ઓફિસને મોકલ્યું ✓');
+    if (!WA.chatOpen()) toast(tr('માપ ઓફિસને મોકલ્યું ✓', 'Sizes sent to the office ✓'));
   } catch (e) {
     if (guCode(e) === 'AUTH' || SV.pending[id] !== p) return;
     if (guCode(e) === 'BAD_STATUS') { delete SV.pending[id]; toast(guErr(e)); }

@@ -127,7 +127,54 @@ const MODE = {
   other: { en: 'Other', gu: 'અન્ય' }
 };
 
-/* Gujarati words used on the driver and collector screens. Change wording here. */
+/* ---------- language of the staff phone screens (added 2026-10-08) ----------
+   Driver, collector and supervisor screens are in Gujarati ('gu', the default) or
+   English ('en'). Admin screens are always English. Customer WhatsApp text is
+   ALWAYS Gujarati (the server never translates it).
+   The choice is made on the PIN screen ("English / ગુજરાતી"), in the phone ⋮ menu,
+   or with ?lang=en (or ?lang=gu) in the web address. It is remembered on this device.
+   How the screens use it:
+     tr('ગુજરાતી', 'English')  -> the text in the chosen language
+     TX.reached                -> a word from the GU / EN lists below, in the chosen language
+     lbl(REASON.traffic)       -> .gu or .en of a label object (REASON, MODE, TANK_MAT...)
+     nameOf(area)              -> name_gu or name_en of a Services / Areas / ClientTypes row
+     enMean('Our team…')       -> in English only: a muted "In English: …" line under Gujarati customer text */
+const LANG_KEY = 'td-lang';
+let uiLangNow = 'gu';
+(function () {
+  let l = '';
+  try { l = (new URLSearchParams(location.search || '')).get('lang') || ''; } catch (e) { /* no address bar (tests) */ }
+  if (l === 'en' || l === 'gu') { try { localStorage.setItem(LANG_KEY, l); } catch (e) { /* private mode */ } }
+  else { try { l = localStorage.getItem(LANG_KEY) || ''; } catch (e) { l = ''; } }
+  uiLangNow = l === 'en' ? 'en' : 'gu';
+})();
+const uiLang = () => uiLangNow;
+const isEn = () => uiLangNow === 'en';
+// Change the language and remember it on this device
+function setLang(l) {
+  uiLangNow = l === 'en' ? 'en' : 'gu';
+  try { localStorage.setItem(LANG_KEY, uiLangNow); } catch (e) { /* private mode: works until the page is closed */ }
+}
+const tr = (gu, en) => (uiLangNow === 'en' ? en : gu);
+const lbl = x => (x ? (uiLangNow === 'en' ? x.en : x.gu) : '');
+const nameOf = x => (x ? (uiLangNow === 'en' ? (x.name_en || x.name_gu || x.key) : (x.name_gu || x.name_en || x.key)) : '');
+// The meaning of Gujarati customer text, shown only in English mode (html: escape it yourself)
+const enMean = html => (uiLangNow === 'en' && html ? '<span class="en-mean">In English: ' + html + '</span>' : '');
+// The same line for the admin screens (always English)
+const enMeanAlways = html => (html ? '<span class="en-mean">In English: ' + html + '</span>' : '');
+// Gujarati customer text, marked as Gujarati (so the English check skips it, and screen readers read it right)
+const guText = html => '<span lang="gu">' + html + '</span>';
+// A date for the staff screens: "ગુરુ 8 ઑક્ટો" (Gujarati) or "Thu 8 Oct" (English)
+const GU_DAYS = ['રવિ', 'સોમ', 'મંગળ', 'બુધ', 'ગુરુ', 'શુક્ર', 'શનિ'];
+const GU_MON = ['જાન્યુ', 'ફેબ્રુ', 'માર્ચ', 'એપ્રિલ', 'મે', 'જૂન', 'જુલાઈ', 'ઑગસ્ટ', 'સપ્ટે', 'ઑક્ટો', 'નવે', 'ડિસે'];
+// "2026-10-08" -> "ગુરુ 8 ઑક્ટો" (always Gujarati: used inside customer words)
+const labGu = s => { const d = pd(s); return GU_DAYS[d.getDay()] + ' ' + d.getDate() + ' ' + GU_MON[d.getMonth()]; };
+const labT = s => (uiLangNow === 'en' ? lab(s) : labGu(s));
+// A duration for the staff screens: "1 કલાક 35 મિનિટ" or "1h 35m"
+const durT = m => (uiLangNow === 'en' ? dur(m) : durGu(m));
+
+/* Gujarati words used on the driver and collector screens. Change wording here.
+   The English words are in EN (below); every key here should have one there. */
 const GU = {
   login: 'લૉગિન',
   enter_pin: 'તમારો 4 આંકડાનો PIN નાખો',
@@ -185,8 +232,122 @@ const GU = {
   sent_surveys: 'મોકલેલા',
   send_measure: 'માપ મોકલો',
   // tank editor
-  partition_hint: 'પાર્ટિશન અને 2 એન્ટ્રી હોય તો દરેક ભાગ અલગ ટાંકી તરીકે માપીને લખો'
+  partition_hint: 'પાર્ટિશન અને 2 એન્ટ્રી હોય તો દરેક ભાગ અલગ ટાંકી તરીકે માપીને લખો',
+  // shared phone words
+  refresh: 'ફરી લોડ કરો',
+  office: 'ઓફિસ',
+  customer: 'ગ્રાહક',
+  today: 'આજે',
+  back_to_list: 'યાદી પર પાછા જાઓ',
+  updating: 'અપડેટ થાય છે…',
+  sending: 'મોકલાય છે…',
+  not_sent_retry: 'મોકલાયું નહીં · ફરી મોકલો',
+  note: 'નોંધ',
+  time: 'સમય',
+  address: 'સરનામું',
+  area: 'વિસ્તાર',
+  type: 'પ્રકાર',
+  phone: 'ફોન',
+  call_short: 'કૉલ',
+  call_aria: 'કૉલ કરો',
+  map_short: 'નકશો',
+  litres: 'લિટર',
+  tank_sizes: 'ટાંકીનું માપ',
+  // language switch (the button shows the OTHER language)
+  lang_other: 'English',
+  lang_label: 'ભાષા / Language'
 };
+
+/* The same words in English (lang 'en'). Short and plain, for field staff. */
+const EN = {
+  login: 'Log in',
+  enter_pin: 'Enter your 4-digit PIN',
+  wrong_pin: 'Wrong PIN. Try again.',
+  locked: 'Too many wrong PINs. Try again in 5 minutes.',
+  login_again: 'Please log in again.',
+  loading: 'Loading…',
+  no_network: 'No network. Try again.',
+  try_again: 'Try again',
+  menu: 'Menu',
+  logout: 'Log out',
+  close: 'Close',
+  team: 'Team',
+  minutes: 'min',
+  driver: 'Driver',
+  today_jobs: "Today's jobs",
+  upcoming_jobs: 'Upcoming jobs',
+  my_profile: 'My profile',
+  day_end: 'End the day',
+  open_map: '📍 Open map',
+  reached: 'I have reached',
+  will_be_late: 'I will be late',
+  work_done: 'Work done',
+  i_left: 'I have left, tell the customer',
+  no_wa: 'No WhatsApp · call',
+  call_tell: 'Call the customer and tell them',
+  call: 'Call',
+  cust_yes: 'Customer agrees ✓',
+  cust_no: 'Customer does not agree ✗',
+  saved_ok: 'Saved ✓',
+  receipt_in_person: 'No WhatsApp: tell the receipt in person',
+  collector: 'Collection',
+  collector_team: 'Payment collection team',
+  ledger: 'To collect',
+  today_collection: "Today's collection",
+  take_payment: 'Take payment',
+  total_due: 'Total due',
+  other_area: 'Other area',
+  status: { new: 'New', assigned: 'To do', delayed: 'Late', reached: 'Working', done: 'Done', moved: 'Moved', ongoing: 'Ongoing (again tomorrow)' },
+  soon_driver: 'The driver screen is coming soon (B7).',
+  soon_collector: 'The collection screen is coming soon (B8).',
+  day_of: (k, n) => 'Day ' + k + ' / ' + n,
+  day_done: "Today's work done",
+  job_done: 'Whole job done',
+  ongoing: 'Ongoing job',
+  supervisor: 'Supervisor',
+  surveys: 'Surveys',
+  sent_surveys: 'Sent',
+  send_measure: 'Send sizes',
+  partition_hint: 'Partition with 2 entry points: measure each part and enter it as a separate tank.',
+  refresh: 'Refresh',
+  office: 'Office',
+  customer: 'Customer',
+  today: 'Today',
+  back_to_list: 'Back to the list',
+  updating: 'updating…',
+  sending: 'Sending…',
+  not_sent_retry: 'Not sent · send again',
+  note: 'Note',
+  time: 'Time',
+  address: 'Address',
+  area: 'Area',
+  type: 'Type',
+  phone: 'Phone',
+  call_short: 'Call',
+  call_aria: 'Call',
+  map_short: 'Map',
+  litres: 'litres',
+  tank_sizes: 'Tank sizes',
+  lang_other: 'ગુજરાતી',
+  lang_label: 'Language'
+};
+
+/* What the customer is told, in English (only for the "In English: …" lines; the customer
+   always gets the Gujarati words, the same as the WhatsApp templates in apps-script/whatsapp.gs). */
+const CUST_EN = {
+  reached: 'Our team has reached.',
+  eta: time => 'We will reach by about ' + time + '.',
+  delay: (m, reason, time) => 'Sorry, our team will reach about ' + m + ' minutes late. Reason: ' + reason + '.' +
+    (time ? ' We will reach by about ' + time + '.' : ''),
+  done: (done, notDone) => 'Work done: ' + done + '.' + (notDone ? ' Still to do: ' + notDone + '.' : '') + ' Is the work all right?',
+  moved: (when, reason) => 'Your job has been moved to ' + when + '.' + (reason ? ' Reason: ' + reason + '.' : ''),
+  receipt: (amt, bal) => inr(amt) + ' received, thank you.' + (bal > 0 ? ' Balance ' + inr(bal) + '.' : ' Fully paid.')
+};
+
+/* TX = the words in the chosen language: TX.reached is "હું પહોંચી ગયો" or "I have reached".
+   (A Proxy looks the word up in EN or GU every time it is read, so a switch takes effect
+   at once. A word missing in EN falls back to Gujarati.) */
+const TX = new Proxy(GU, { get: (gu, k) => (uiLangNow === 'en' && k in EN ? EN[k] : gu[k]) });
 
 /* ---------- tank sizes (log book, added 2026-10-08; material added 2026-10-08) ----------
    A tank, as the server sends it:
@@ -237,6 +398,8 @@ function tankTextGu(t) {
   }
   return type + ': ' + litresText(tankLitres(t)) + ' લિટર × ' + n;
 }
+// The tank line for the staff phone screens, in the chosen language
+const tankTextT = t => (uiLangNow === 'en' ? tankText(t) : tankTextGu(t));
 // Short list for one line: "2,000 L × 1 = OH · Cement; 1.40 × 1.60 × 2.10 m = OH (4,704 L) · Cement"
 const tanksLine = list => (list || []).map(tankText).join('; ');
 // Total litres of a list of tanks

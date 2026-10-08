@@ -218,6 +218,13 @@ a.lnk,button.lnk{color:var(--accent);font-weight:600;background:none;border:0;pa
 .pad{display:grid;grid-template-columns:repeat(3,64px);gap:10px}
 .pad button{height:56px;border-radius:16px;border:1px solid var(--line);background:var(--surface2);font:700 22px var(--f-display);cursor:pointer}
 .pad button[disabled]{opacity:.45}
+/* Language switch on the PIN screen: two small pills, the chosen one filled (app.js switchLang) */
+.lang-tg{display:inline-flex;border:1px solid var(--line);border-radius:99px;padding:2px;background:var(--surface)}
+.lang-tg button{border:0;background:none;border-radius:99px;padding:6px 14px;font:600 14px var(--f-body,inherit);color:var(--muted);cursor:pointer;min-height:36px}
+.lang-tg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+/* The language item in the phone menu: the other language, with a small "Language" line under it */
+.dn-lang{display:flex;flex-direction:column;align-items:flex-start;gap:1px}
+.dn-lang .sub{font-weight:500}
 
 /* ---------- toasts (short messages at the bottom) ---------- */
 #toasts{position:fixed;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;z-index:50;padding-inline:16px}

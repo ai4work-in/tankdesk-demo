@@ -53,11 +53,12 @@ function adminNav() {
     return [n[0], word(n[1]), sub, n[3]];
   });
 }
+// [page key, word key in TX] (the word is looked up when drawn, so a language switch shows at once)
 const PHONE_NAV = {
-  driver: [['today', GU.today_jobs], ['up', GU.upcoming_jobs], ['me', GU.my_profile]],
-  collector: [['todo', GU.ledger], ['done', GU.today_collection]],
+  driver: [['today', 'today_jobs'], ['up', 'upcoming_jobs'], ['me', 'my_profile']],
+  collector: [['todo', 'ledger'], ['done', 'today_collection']],
   // supervisor (added 2026-10-08): survey visits to measure, and the ones already sent
-  supervisor: [['todo', GU.surveys], ['done', GU.sent_surveys]]
+  supervisor: [['todo', 'surveys'], ['done', 'sent_surveys']]
 };
 
 /* ---------- show one main view, hide the others ---------- */
@@ -73,10 +74,39 @@ let pinDigits = '', pinBusy = false;
 function showLogin(message) {
   App.session = null; App.setup = null;
   pinDigits = ''; pinBusy = false;
-  document.documentElement.lang = 'gu';
+  document.documentElement.lang = uiLang();
   showView('v-login');
+  renderLoginText();
   renderPin(message || '');
 }
+
+/* The words on the PIN screen and the "ગુજરાતી / English" switch.
+   Gujarati (default) keeps the English in small text next to it, as before. */
+function renderLoginText() {
+  const en = isEn();
+  $('#pin-title').innerHTML = en ? 'Log in' : esc(GU.login) + ' <span class="sub">/ Log in</span>';
+  $('#pin-hint').textContent = en ? EN.enter_pin : GU.enter_pin + ' · ' + EN.enter_pin;
+  $$('#pin-lang button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.l === uiLang())));
+  $('#pin-lang').setAttribute('aria-label', en ? EN.lang_label : GU.lang_label);
+}
+
+// A login message: Gujarati mode shows both languages (as before), English mode only English
+const loginMsg = (key, en) => (isEn() ? en : GU[key] + ' · ' + en);
+
+/* ---------- switch the language of the staff screens (PIN screen, phone ⋮ menu) ---------- */
+function switchLang(l) {
+  setLang(l);
+  if (!$('#v-login').hidden) { document.documentElement.lang = uiLang(); renderLoginText(); renderPin(''); return; }
+  if (!App.session || App.session.role === 'admin' || $('#v-phone').hidden) return;
+  document.documentElement.lang = uiLang();
+  closeOverlays();
+  renderPhone();
+  // each role file redraws an open chat in the new language (Phone.relang in driver.js etc.)
+  const fn = typeof Phone !== 'undefined' && Phone.relang && Phone.relang[App.session.role];
+  if (fn) fn();
+  toast(tr('ભાષા: ગુજરાતી', 'Language: English'));
+}
+onAct('lang', el => switchLang(el.dataset.l));
 
 function renderPin(error) {
   $$('#pin-dots i').forEach((dot, i) => dot.classList.toggle('on', i < pinDigits.length));
@@ -104,12 +134,12 @@ async function doLogin() {
     pinDigits = ''; pinBusy = false;
     const code = e.code || String(e.message).split(':')[0];
     console.error('Login failed:', e);   // the exact reason, for whoever is helping
-    renderPin(code === 'BAD_PIN' ? GU.wrong_pin + ' · Wrong PIN.'
-      : code === 'LOCKED' ? GU.locked + ' · Too many tries, wait 5 minutes.'
-      : code === 'NETWORK' || code === 'TIMEOUT' ? GU.no_network + ' · No network, try again.'
+    renderPin(code === 'BAD_PIN' ? loginMsg('wrong_pin', 'Wrong PIN.')
+      : code === 'LOCKED' ? loginMsg('locked', 'Too many tries, wait 5 minutes.')
+      : code === 'NETWORK' || code === 'TIMEOUT' ? loginMsg('no_network', 'No network, try again.')
       // e.g. the supervisor PIN when the "Survey and quotation" add-on is off
-      : code === 'FORBIDDEN' ? 'આ સુવિધા ચાલુ નથી. · This feature is not switched on.'
-      : 'ભૂલ થઈ (' + code + '). ફરી પ્રયત્ન કરો. · Server problem (' + code + '), try again.');
+      : code === 'FORBIDDEN' ? tr('આ સુવિધા ચાલુ નથી. · ', '') + 'This feature is not switched on.'
+      : tr('ભૂલ થઈ (' + code + '). ફરી પ્રયત્ન કરો. · ', '') + 'Server problem (' + code + '), try again.');
   }
 }
 
@@ -129,10 +159,10 @@ async function startApp() {
   App.session = currentSession();
   if (!App.session || sessionExpired(App.session)) { clearSession(); showLogin(); return; }
 
-  const gu = App.session.role !== 'admin';
-  document.documentElement.lang = gu ? 'gu' : 'en';
+  const gu = App.session.role !== 'admin';   // a phone role (its language is the one chosen, see common.js)
+  document.documentElement.lang = gu ? uiLang() : 'en';
   showView('v-wait');
-  $('#wait-msg').textContent = gu ? GU.loading : 'Loading…';
+  $('#wait-msg').textContent = gu ? TX.loading : 'Loading…';
 
   try {
     App.setup = await api('setup.get');
@@ -140,10 +170,10 @@ async function startApp() {
     if (e.message === 'AUTH') return;   // already sent back to the PIN screen
     // An add-on was switched off while logged in (e.g. the supervisor without "quotation")
     if (String(e.code || e.message).split(':')[0] === 'FORBIDDEN') {
-      clearSession(); showLogin('આ સુવિધા ચાલુ નથી. · This feature is not switched on.'); return;
+      clearSession(); showLogin(tr('આ સુવિધા ચાલુ નથી. · ', '') + 'This feature is not switched on.'); return;
     }
-    $('#wait-msg').innerHTML = esc(gu ? GU.no_network : 'Could not reach the server.') +
-      '<br><br><button class="btn pri" data-act="retry-start">' + esc(gu ? GU.try_again : 'Try again') + '</button>';
+    $('#wait-msg').innerHTML = esc(gu ? TX.no_network : 'Could not reach the server.') +
+      '<br><br><button class="btn pri" data-act="retry-start">' + esc(gu ? TX.try_again : 'Try again') + '</button>';
     return;
   }
 
@@ -262,7 +292,7 @@ App.refreshAlertBadge = refreshAlertBadge;
 setInterval(() => { if (App.session && App.session.role === 'admin' && !document.hidden) refreshAlertBadge(); }, 120000);
 
 /* ==========================================================================
-   PHONE LAYOUT (driver and collector, Gujarati)
+   PHONE LAYOUT (driver, collector and supervisor: Gujarati, or English when chosen)
    ========================================================================== */
 function showPhone() {
   const nav = PHONE_NAV[App.session.role] || [];
@@ -276,22 +306,22 @@ function renderPhone() {
   const role = App.session.role;
   const nav = PHONE_NAV[role] || [];
   const agency = (App.setup && App.setup.settings && App.setup.settings.agency_name) || 'Tank Desk';
-  const who = role === 'driver' ? GU.team + ' ' + App.session.team + ' · ' + App.session.name
-    : role === 'supervisor' ? GU.supervisor + ' · ' + App.session.name : GU.collector;
+  const who = role === 'driver' ? TX.team + ' ' + App.session.team + ' · ' + App.session.name
+    : role === 'supervisor' ? TX.supervisor + ' · ' + App.session.name : TX.collector;
 
   // Blue header bar: agency name, who is logged in, refresh and the ⋮ menu
   $('#ph-head').innerHTML = '<div class="wa-head"><div class="t"><b>' + esc(agency) + '</b><span>' + esc(who) + '</span></div>' +
-    '<button class="wa-ib" data-act="ph-refresh" aria-label="' + esc(GU.refresh || 'Refresh') + '">' + WA.icons.refresh + '</button>' +
-    '<button class="wa-ib" data-act="menu" aria-label="મેનુ">' + WA.icons.more + '</button></div>';
+    '<button class="wa-ib" data-act="ph-refresh" aria-label="' + esc(TX.refresh) + '">' + WA.icons.refresh + '</button>' +
+    '<button class="wa-ib" data-act="menu" aria-label="' + esc(TX.menu) + '">' + WA.icons.more + '</button></div>';
 
   // Tabs under the header (like Chats / Updates / Calls). App.tabCounts[page] shows a small number.
   $('#ph-tabs').innerHTML = nav.map(n => '<button role="tab" data-act="page" data-p="' + n[0] + '" aria-selected="' + (App.phonePage === n[0]) + '">' +
-    esc(n[1]) + ((App.tabCounts || {})[n[0]] ? '<span class="cnt">' + App.tabCounts[n[0]] + '</span>' : '') + '</button>').join('');
+    esc(TX[n[1]]) + ((App.tabCounts || {})[n[0]] ? '<span class="cnt">' + App.tabCounts[n[0]] + '</span>' : '') + '</button>').join('');
 
   const el = $('#ph-body');
   const screen = App.screens[role] && App.screens[role][App.phonePage];
   if (screen) screen(el);
-  else el.innerHTML = '<div class="empty">' + esc(role === 'driver' ? GU.soon_driver : role === 'collector' ? GU.soon_collector : GU.loading) + '</div>';
+  else el.innerHTML = '<div class="empty">' + esc(role === 'driver' ? TX.soon_driver : role === 'collector' ? TX.soon_collector : TX.loading) + '</div>';
 }
 
 /** Lets a screen show a small count on its tab (e.g. jobs left today). */
@@ -311,14 +341,18 @@ onAct('ph-refresh', () => { if (!WA.chatOpen()) renderPhone(); });
 function openDrawer() {
   const role = App.session.role;
   const who = role === 'driver'
-    ? '<b>' + esc(App.session.name) + '</b><span class="sub">' + GU.team + ' ' + esc(App.session.team) + '</span>'
-    : role === 'supervisor' ? '<b>' + esc(App.session.name) + '</b><span class="sub">' + GU.supervisor + ' · ટાંકીનું માપ</span>'
-    : '<b>' + GU.collector + '</b><span class="sub">' + GU.collector_team + '</span>';
+    ? '<b>' + esc(App.session.name) + '</b><span class="sub">' + TX.team + ' ' + esc(App.session.team) + '</span>'
+    : role === 'supervisor' ? '<b>' + esc(App.session.name) + '</b><span class="sub">' + TX.supervisor + ' · ' + TX.tank_sizes + '</span>'
+    : '<b>' + TX.collector + '</b><span class="sub">' + TX.collector_team + '</span>';
+  // Language switch: shows the OTHER language ("English" while in Gujarati, "ગુજરાતી" while in English)
+  const other = isEn() ? 'gu' : 'en';
+  const langBtn = '<button class="dn dn-lang" data-act="lang" data-l="' + other + '"><span lang="' + other + '">' + esc(TX.lang_other) + '</span>' +
+    '<span class="sub">' + esc(TX.lang_label) + '</span></button>';
   const d = $('#ph-drawer');
   d.innerHTML = '<div class="scrim" data-act="close"></div><nav class="drawer"><div class="who">' + who + '</div>' +
     (PHONE_NAV[role] || []).map(n => '<button class="dn" data-act="page" data-p="' + n[0] + '"' +
-      (App.phonePage === n[0] ? ' aria-current="page"' : '') + '>' + esc(n[1]) + '</button>').join('') +
-    '<button class="dn" data-act="logout">' + GU.logout + '</button></nav>';
+      (App.phonePage === n[0] ? ' aria-current="page"' : '') + '>' + esc(TX[n[1]]) + '</button>').join('') +
+    langBtn + '<button class="dn" data-act="logout">' + TX.logout + '</button></nav>';
   d.hidden = false;
 }
 
@@ -356,7 +390,7 @@ document.addEventListener('input', e => {
 
 /* ---------- go ---------- */
 // When the server says the login is no longer valid: back to the PIN screen
-setAuthLostHandler(() => showLogin(GU.login_again + ' · Please log in again.'));
+setAuthLostHandler(() => showLogin(loginMsg('login_again', 'Please log in again.')));
 
 // Start after every script (including the role files) has loaded
 document.addEventListener('DOMContentLoaded', startApp);

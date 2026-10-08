@@ -804,11 +804,119 @@
     } catch (e) { /* not JSON: plain text */ }
     return esc(body);
   }
+  /* ---------- "In English: …" under each message (added 2026-10-08) ----------
+     Customers get Gujarati only. The owner's helpers may not read Gujarati, so every
+     message in the history gets a muted line with its meaning in English.
+     - From the business: the English of the template, with the values filled in.
+       The values come from the logged params (demo mode: {"mins":30,...}) or are read
+       out of the Gujarati text the server logged (live: the same words as the templates
+       in apps-script/whatsapp.gs, copied below; if a wording changes there, the line
+       still shows, only without the values).
+     - From the customer: the meaning of the buttons and common answers; anything else
+       typed by the customer is not translated. */
+  const WA_GU = {
+    arrival_confirm: 'નમસ્તે! {{1}} ની ટીમ ટાંકીની સફાઈ માટે તમારા ઘરે પહોંચી ગઈ છે. શું ટીમ પહોંચી ગઈ છે? કૃપા કરીને જણાવો.',
+    work_done_checklist: 'તમારી ટાંકીનું કામ પૂર્ણ થયું છે. થયું: {{1}}. બાકી: {{2}}. આ બરાબર છે?',
+    delay: 'માફ કરજો, અમારી ટીમ લગભગ {{1}} મિનિટ મોડી પહોંચશે. કારણ: {{2}}. અમે લગભગ {{3}} સુધીમાં પહોંચી જઈશું.',
+    arrival_time: 'નમસ્તે! અમારી ટીમ પહેલાનું કામ પૂર્ણ કરીને તમારી તરફ નીકળી છે. લગભગ {{1}} સુધીમાં પહોંચી જઈશું.',
+    rescheduled: 'નમસ્તે! તમારી ટાંકીની સફાઈ હવે {{1}} ના રોજ {{2}} વાગ્યે રાખી છે. કારણ: {{3}}. આ સમય ન ફાવે તો અમને જવાબ આપજો.',
+    quotation: 'નમસ્તે {{1}}! {{2}} તરફથી ટાંકી સફાઈનો ભાવ: ટાંકી: {{3}}. વધારાની સેવા: {{4}}. કુલ રકમ: {{5}}. મંજૂર હોય તો હા દબાવો, તારીખ નક્કી કરવા અમે તમને ફોન કરીશું.',
+    payment_thanks: 'ચુકવણી બદલ આભાર! અમને {{1}} {{2}} દ્વારા મળ્યા છે. બાકી રકમ: {{3}}.'
+  };
+  const WA_EN = {
+    arrival_confirm: 'Hello! The {1} team has reached your home to clean the tank. Has the team arrived? Please reply. [Yes / No]',
+    work_done_checklist: 'Your tank work is finished. Done: {1}. Pending: {2}. Is this right? [Yes, fine / No, not fine]',
+    delay: 'Sorry, our team will reach about {1} minutes late. Reason: {2}. We will reach by about {3}.',
+    arrival_time: 'Hello! Our team has finished the previous job and is on the way to you. We will reach by about {1}.',
+    rescheduled: 'Hello! Your tank cleaning is now on {1} at {2}. Reason: {3}. If this time does not suit you, please reply.',
+    quotation: 'Hello {1}! Tank cleaning price from {2}: Tanks: {3}. Extra services: {4}. Total: {5}. Press Yes to accept; we will call you to fix the date. [Yes / No]',
+    payment_thanks: 'Thank you for your payment! We received {1} by {2}. Balance: {3}.',
+    // follow-ups inside the 24-hour window (whatsapp.gs WA_SESSION)
+    arrive_no: 'Sorry. We are checking now and will call you soon.',
+    time_ask: 'Sorry. When was the work finished? [before 12 / 12 to 3 / after 3]',
+    noted: 'Thank you. We have noted it; the owner will call you.'
+  };
+  // The same meaning when the log has no values (e.g. old sample rows with an empty body)
+  const WA_EN_NOVAL = {
+    arrival_confirm: 'Hello! Our team has reached your home to clean the tank. Has the team arrived? Please reply. [Yes / No]',
+    work_done_checklist: 'Your tank work is finished. Is this right? [Yes, fine / No, not fine]',
+    delay: 'Sorry, our team will be late. We will reach soon.',
+    arrival_time: 'Hello! Our team has finished the previous job and is on the way to you.',
+    rescheduled: 'Hello! Your tank cleaning has a new date. If this time does not suit you, please reply.',
+    quotation: 'Hello! Here is the price for your tank cleaning. Press Yes to accept; we will call you to fix the date. [Yes / No]',
+    payment_thanks: 'Thank you for your payment!'
+  };
+  // Customer answers (buttons and common words) -> English
+  const REPLY_EN = {
+    'હા': 'Yes', 'હાં': 'Yes', 'ના': 'No', 'હા, બરાબર': 'Yes, fine', 'ના, બરાબર નથી': 'No, not fine',
+    '12 પહેલાં': 'before 12 PM', '12 થી 3': 'between 12 and 3 PM', '3 પછી': 'after 3 PM'
+  };
+  const hasGu = t => /[\u0A80-\u0AFF]/.test(String(t || ''));
+  // Gujarati words that appear inside template values -> English (longest first)
+  function guWordsEn(v) {
+    let t = String(v == null ? '' : v);
+    if (!hasGu(t)) return t;
+    const pairs = [['કંઈ નહીં, બધું ચૂકવાઈ ગયું', 'nothing, all paid'], ['કંઈ નહીં', 'none'], ['અન્ય રીતે', 'other']];
+    Object.keys(REASON).forEach(k => pairs.push([REASON[k].gu, REASON[k].en]));
+    Object.keys(MODE).forEach(k => pairs.push([MODE[k].gu, MODE[k].en]));
+    (setup().services || []).forEach(x => { if (x.name_gu) pairs.push([x.name_gu, x.name_en || x.key]); });
+    pairs.push(['તમારી વિનંતી મુજબ', 'as you requested'], ['અમારી ટીમ ઉપલબ્ધ નથી', 'our team is not available'], ['ખરાબ હવામાન', 'bad weather']);
+    ['રવિવાર', 'સોમવાર', 'મંગળવાર', 'બુધવાર', 'ગુરુવાર', 'શુક્રવાર', 'શનિવાર'].forEach((d, i) =>
+      pairs.push([d, ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][i]]));
+    pairs.push(['સિમેન્ટ ટાંકી', 'cement tank(s)'], ['પ્લાસ્ટિક ટાંકી', 'plastic tank(s)'], ['લિ.', 'L'], ['ટાંકી સફાઈ સેવા', 'tank cleaning service'], ['ગ્રાહક', 'customer']);
+    pairs.sort((a, b) => b[0].length - a[0].length).forEach(p => { if (p[0]) t = t.split(p[0]).join(p[1]); });
+    return t;
+  }
+  // The values {{1}}, {{2}}… read out of the Gujarati text the server logged (null if it does not match)
+  function valuesFromText(tpl, text) {
+    const b = WA_GU[tpl];
+    if (!b) return null;
+    const reEsc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('^' + b.split(/\{\{\d+\}\}/).map(reEsc).join('(.*?)') + '$');
+    const mm = String(text || '').replace(/\s*\[ERROR:[\s\S]*\]\s*$/, '').trim().match(re);
+    return mm ? mm.slice(1) : null;
+  }
+  // The values from the params the demo server logs ({"mins":30,"reason":"traffic","time":"11:05"})
+  function valuesFromParams(tpl, p) {
+    const agency = (setup().settings || {}).agency_name || 'our';
+    const t12 = v => (v && /^\d{1,2}:\d{2}$/.test(String(v)) ? fm(mins(v)) : v);
+    const list = a => (Array.isArray(a) ? (a.length ? a.map(svcName).join(', ') : 'none') : a);
+    switch (tpl) {
+      case 'arrival_confirm': return [agency];
+      case 'work_done_checklist': return [list(p.done), list(p.not_done)];
+      case 'delay': return [p.mins, REASON[p.reason] ? REASON[p.reason].en : p.reason, t12(p.time)];
+      case 'arrival_time': return [t12(p.time)];
+      case 'rescheduled': return [p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? lab(p.date) : p.date, t12(p.time), p.reason];
+      case 'quotation': return [p.client_name, agency, p.tanks, list(p.addons || p.services || []), p.total !== undefined ? inr(p.total) : ''];
+      case 'payment_thanks': return [inr(p.amount), MODE[p.mode] ? MODE[p.mode].en : p.mode, Number(p.balance) > 0 ? inr(p.balance) : 'nothing, all paid'];
+    }
+    return [];
+  }
+  // The English meaning of one logged message (text, not HTML), or '' when there is nothing to say
+  function messageEn(m) {
+    if (m.direction === 'in') {
+      const t = String(m.body || '').trim();
+      if (REPLY_EN[t]) return REPLY_EN[t];
+      return hasGu(t) ? "(the customer's own words, not translated)" : '';
+    }
+    const en = WA_EN[m.template];
+    if (!en) return '';
+    let vals = null;
+    try { const p = JSON.parse(m.body); if (p && typeof p === 'object') vals = valuesFromParams(m.template, p); } catch (e) { /* plain text */ }
+    if (!vals) vals = valuesFromText(m.template, m.body) || [];
+    if (!vals.some(v => v !== undefined && v !== null && v !== '') && WA_EN_NOVAL[m.template]) return WA_EN_NOVAL[m.template];
+    return en.replace(/\{(\d)\}/g, (all, n) => {
+      const v = vals[Number(n) - 1];
+      return v === undefined || v === null || v === '' ? '…' : guWordsEn(v);
+    });
+  }
+
   function messageBubble(m) {
     const time = fm(mins(m.ts)) + (m.order_id ? ' · #' + m.order_id : '');
+    const en = enMeanAlways(esc(messageEn(m)));   // "In English: …" (muted)
     if (m.direction === 'in') {
       // Customer reply: left side, like the other person in a chat
-      return WA.bubble('in', bodyText(m.body) || '<span class="sub">(no text)</span>', time, { who: 'Customer', cls: 'ins-cust' });
+      return WA.bubble('in', (bodyText(m.body) || '<span class="sub">(no text)</span>') + en, time, { who: 'Customer', cls: 'ins-cust' });
     }
     // From the business: right side. 1 tick = sent, 2 ticks = delivered / read (blue when read)
     const st = m.status || '';
@@ -816,12 +924,12 @@
     if (st === 'skipped_no_wa') {
       const tp = m.template ? '<span class="ins-tpl">' + ICON.chat + esc(TEMPLATE_EN[m.template] || m.template) + '</span>' : '';
       const bd = bodyText(m.body);
-      return WA.bubble('out', tp + (bd ? '<div>' + bd + '</div>' : '') + '<div class="ins-skip">Not sent · no WhatsApp</div>', time, { cls: 'ins-skipped' });
+      return WA.bubble('out', tp + (bd ? '<div>' + bd + '</div>' : '') + en + '<div class="ins-skip">Not sent · no WhatsApp</div>', time, { cls: 'ins-skipped' });
     }
     const ticks = st === 'delivered' || st === 'read' ? 2 : st === 'failed' ? 0 : 1;
     const tpl = m.template ? '<span class="ins-tpl">' + ICON.chat + esc(TEMPLATE_EN[m.template] || m.template) + '</span>' : '';
     const body = bodyText(m.body);
-    return WA.bubble('out', tpl + (body ? '<div>' + body + '</div>' : (tpl ? '' : '<span class="sub">(template text)</span>')) +
+    return WA.bubble('out', tpl + (body ? '<div>' + body + '</div>' : (tpl ? '' : '<span class="sub">(template text)</span>')) + en +
       (st === 'failed' ? '<div class="ins-red">Not sent</div>' : ''),
       time, { ticks: ticks, cls: (st === 'failed' ? 'bad' : st === 'read' ? 'ins-read' : 'ins-unread') });
   }

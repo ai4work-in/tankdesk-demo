@@ -1,5 +1,5 @@
 /* ==========================================================================
-   collector.js: the PAYMENT COLLECTOR screens (Gujarati), in chat style.
+   collector.js: the PAYMENT COLLECTOR screens (Gujarati, or English when chosen), in chat style.
    Staff already know WhatsApp, so the screens work the same way:
      todo ("કલેક્શન લેજર")   a chat list: one row per client who still has to pay
                              tap a row -> a chat opens, money is "sent" from the
@@ -11,7 +11,8 @@
 
    Uses shared helpers:
      chat.js   WA.row, WA.bubble, WA.openChat ... (the chat look)
-     driver.js guErr, telUrl, labGu, Phone.reload (loaded before this file)
+     driver.js guErr, telUrl, Phone.reload (loaded before this file)
+     common.js labT, tr, TX (the words in Gujarati or English)
      app.js    setTabCount, renderPhone
    Styles: the "collector" section at the end of phone.css.
    ========================================================================== */
@@ -30,24 +31,29 @@ const CO = {
   token: ''        // which login the data belongs to
 };
 const CO_MODES = ['cash', 'upi', 'cheque', 'bank', 'other'];
-const CO_OFFICE = 'ઓફિસ';   // name shown on the office's messages
+// (the office's messages show TX.office as the sender)
 
 const coArea = r => r.area || 'other';
-const coAreaGu = k => { const a = (App.setup.areas || []).find(x => x.key === k); return a ? a.name_gu : GU.other_area; };
+// Area name in the chosen language (name_gu or name_en)
+const coAreaT = k => { const a = (App.setup.areas || []).find(x => x.key === k); return a ? nameOf(a) : TX.other_area; };
+// "3 ગ્રાહક" / "3 customers"
+const coCust = n => tr(n + ' ગ્રાહક', n + (n === 1 ? ' customer' : ' customers'));
 const coRow = id => ((CO.data && CO.data.rows) || []).find(r => String(r.order_id) === String(id));
 const coTime = t => (t ? fm(mins(t)) : '');   // "14:05" -> "2:05 PM"
 const coNowTime = () => fm(nowMin());
-const coModeGu = k => (MODE[k] || MODE.other).gu;
+const coModeT = k => lbl(MODE[k] || MODE.other);   // payment mode in the chosen language
 // Client without WhatsApp (whatsapp 'no'): no thank-you WhatsApp is sent, the collector says the receipt in person
 const coNoWa = r => !!r && String(r.whatsapp || '').toLowerCase() === 'no';
-// The receipt words to say: "₹1,000 મળ્યા, આભાર. બાકી ₹500." (same as the payment_thanks template)
-const coSayReceipt = (amt, bal) => '«' + inr(amt) + ' મળ્યા, આભાર.' + (bal > 0 ? ' બાકી ' + inr(bal) + '.' : ' પૂરું ચૂકવાઈ ગયું.') + '»';
+// The receipt words to say: "₹1,000 મળ્યા, આભાર. બાકી ₹500." (same as the payment_thanks template).
+// Always Gujarati (the customer hears it); in English mode the meaning shows under it. Returns HTML.
+const coSayReceipt = (amt, bal) => guText(esc('«' + inr(amt) + ' મળ્યા, આભાર.' + (bal > 0 ? ' બાકી ' + inr(bal) + '.' : ' પૂરું ચૂકવાઈ ગયું.') + '»')) +
+  enMean(esc(CUST_EN.receipt(amt, bal)));
 
 /* ---------- load the to-collect list ----------
    Speed: apiCached() first draws the copy saved on the phone (instant), then asks
    the server (1-2 seconds on mobile data) and redraws only if something changed.
    While the server is being asked, the total line says "updating…". */
-const CO_UPDATING = 'અપડેટ થાય છે…';
+const coUpdating = () => TX.updating;
 
 // Redraw the open tab. An open chat sits on top of the list, so it is not disturbed.
 function coRedraw() {
@@ -60,7 +66,7 @@ function coRedraw() {
 function coMarkUpdating(on) {
   const t = $('.co-total'), old = $('.co-upd');
   if (old && !on) old.remove();
-  if (t && on && !old) t.insertAdjacentHTML('beforeend', '<span class="co-upd"> · ' + CO_UPDATING + '</span>');
+  if (t && on && !old) t.insertAdjacentHTML('beforeend', '<span class="co-upd"> · ' + coUpdating() + '</span>');
 }
 
 async function coLoad() {
@@ -92,9 +98,19 @@ async function coLoad() {
 // Refresh button, 60-second timer and coming back to the app: skip while a chat is open,
 // so the collector is never interrupted in the middle of typing an amount.
 Phone.reload.collector = () => { if (!WA.chatOpen()) coLoad(); };
+// Language switched (app.js): redraw an open chat in the new words, keeping what was typed.
+// Not while a payment is being checked or saved (nothing must be lost there).
+Phone.relang.collector = () => {
+  const c = CO.chat, r = c && coRow(c.id);
+  if (!c || !r || !WA.chatOpen() || CO.ask || CO.busy || $('#co-pend')) return;
+  const keep = { amt: c.amt, mode: c.mode, note: c.note };
+  coOpenChat(r);
+  Object.assign(CO.chat, keep);
+  if (CO.chat.balance > 0) { coSetBottom(coComposer()); coSync(); }
+};
 
 // The "updating…" mark for the total line while the server is being asked
-const coUpd = () => (CO.loading ? '<span class="co-upd"> · ' + CO_UPDATING + '</span>' : '');
+const coUpd = () => (CO.loading ? '<span class="co-upd"> · ' + coUpdating() + '</span>' : '');
 
 // Common start of every collector page: loading / error / data
 function coReady(el) {
@@ -103,8 +119,8 @@ function coReady(el) {
   if (!CO.data && !CO.loading && !CO.error) coLoad();   // draws the saved copy at once if there is one
   if (CO.data) return true;
   if (CO.error) el.innerHTML = '<div class="co-pad"><div class="box bad">' + esc(CO.error) + '</div>' +
-    '<button class="btn lg" data-act="ph-refresh">' + GU.try_again + '</button></div>';
-  else el.innerHTML = '<div class="empty">' + GU.loading + '</div>';
+    '<button class="btn lg" data-act="ph-refresh">' + TX.try_again + '</button></div>';
+  else el.innerHTML = '<div class="empty">' + TX.loading + '</div>';
   return false;
 }
 
@@ -116,7 +132,7 @@ registerScreen('collector', 'todo', el => {
   const L = (CO.data.rows || []).filter(r => r.balance > 0);
   setTabCount('todo', L.length);
   // Areas that have someone to collect from, in alphabetical order ("other" last)
-  const areas = Array.from(new Set(L.map(coArea))).sort((x, y) => (x === 'other') - (y === 'other') || coAreaGu(x).localeCompare(coAreaGu(y)));
+  const areas = Array.from(new Set(L.map(coArea))).sort((x, y) => (x === 'other') - (y === 'other') || coAreaT(x).localeCompare(coAreaT(y)));
   const af = areas.includes(CO.area) ? CO.area : '';
   const LL = af ? L.filter(r => coArea(r) === af) : L;
   const sum = list => list.reduce((a, r) => a + r.balance, 0);
@@ -124,26 +140,26 @@ registerScreen('collector', 'todo', el => {
   let h = '';
   if (CO.error) h += '<div class="co-pad"><div class="box bad">' + esc(CO.error) + '</div></div>';
   // Area filter chips (scroll sideways when there are many areas)
-  h += '<div class="wa-chips co-areas" role="group" aria-label="વિસ્તાર પ્રમાણે જુઓ">' +
-    '<button aria-pressed="' + (af === '') + '" data-act="co-area" data-a="">બધા · ' + L.length + '</button>' +
+  h += '<div class="wa-chips co-areas" role="group" aria-label="' + esc(tr('વિસ્તાર પ્રમાણે જુઓ', 'Show by area')) + '">' +
+    '<button aria-pressed="' + (af === '') + '" data-act="co-area" data-a="">' + tr('બધા', 'All') + ' · ' + L.length + '</button>' +
     areas.map(k => '<button aria-pressed="' + (af === k) + '" data-act="co-area" data-a="' + esc(k) + '">' +
-      esc(coAreaGu(k)) + ' · ' + L.filter(r => coArea(r) === k).length + '</button>').join('') + '</div>';
+      esc(coAreaT(k)) + ' · ' + L.filter(r => coArea(r) === k).length + '</button>').join('') + '</div>';
   // Total line
-  h += '<div class="co-total">' + (af ? esc(coAreaGu(af)) + ' માં બાકી ' : GU.total_due + ' ') +
-    '<b>' + inr(sum(LL)) + '</b> · ' + LL.length + ' ગ્રાહક' + coUpd() + '</div>';
+  h += '<div class="co-total">' + (af ? tr(esc(coAreaT(af)) + ' માં બાકી ', 'Due in ' + esc(coAreaT(af)) + ' ') : TX.total_due + ' ') +
+    '<b>' + inr(sum(LL)) + '</b> · ' + coCust(LL.length) + coUpd() + '</div>';
 
   // One chat row per client: balance in the "time" spot, area and address as the last line
   const row = r => WA.row({
     name: r.client_name, time: inr(r.balance), timeHot: true,
-    preview: (coNoWa(r) ? '<span class="dr-nowa">' + esc(GU.no_wa) + '</span> ' : '') + esc(coAreaGu(coArea(r)) + ' · ' + (r.address || '')),
+    preview: (coNoWa(r) ? '<span class="dr-nowa">' + esc(TX.no_wa) + '</span> ' : '') + esc(coAreaT(coArea(r)) + ' · ' + (r.address || '')),
     act: 'co-open', data: { id: r.order_id }
   });
 
-  if (!LL.length) h += '<div class="empty">કોઈ બાકી પેમેન્ટ નથી.</div>';
+  if (!LL.length) h += '<div class="empty">' + tr('કોઈ બાકી પેમેન્ટ નથી.', 'No payments due.') + '</div>';
   else if (af) h += '<div class="wa-list co-list">' + LL.map(row).join('') + '</div>';
   else h += '<div class="wa-list co-list">' + areas.map(k => {
     const g = L.filter(r => coArea(r) === k);
-    return WA.sec(coAreaGu(k) + ' · ' + g.length + ' ગ્રાહક · ' + inr(sum(g))) + g.map(row).join('');
+    return WA.sec(coAreaT(k) + ' · ' + coCust(g.length) + ' · ' + inr(sum(g))) + g.map(row).join('');
   }).join('') + '</div>';
   el.innerHTML = h;
 });
@@ -157,20 +173,21 @@ registerScreen('collector', 'done', el => {
   setTabCount('todo', (CO.data.rows || []).filter(r => r.balance > 0).length);
   const td = (CO.data.today_payments || []).slice().sort((a, b) => (a.time < b.time ? 1 : -1));   // newest first
   const total = td.reduce((a, p) => a + Number(p.amount || 0), 0);
-  let h = '<div class="co-total">' + esc(labGu(todayIso())) + ' · આજે કુલ મળ્યા <b>' + inr(total) + '</b> · ' + td.length + ' પેમેન્ટ' + coUpd() + '</div>';
+  let h = '<div class="co-total">' + esc(labT(todayIso())) + tr(' · આજે કુલ મળ્યા ', ' · received today ') + '<b>' + inr(total) + '</b> · ' +
+    tr(td.length + ' પેમેન્ટ', td.length + (td.length === 1 ? ' payment' : ' payments')) + coUpd() + '</div>';
   // Total per payment mode (રોકડ ₹X · UPI ₹Y ...), so the cash hand-over at the office is easy to check
   if (td.length) {
     const byMode = {};
     td.forEach(p => { const k = CO_MODES.includes(p.mode) ? p.mode : 'other'; byMode[k] = (byMode[k] || 0) + Number(p.amount || 0); });
-    h += '<div class="co-modesum" aria-label="રીત પ્રમાણે કુલ">' + CO_MODES.filter(k => byMode[k]).map(k =>
-      '<span class="co-ms' + (k === 'cash' ? ' cash' : '') + '">' + esc(coModeGu(k)) + ' <b>' + inr(byMode[k]) + '</b></span>').join('') + '</div>';
+    h += '<div class="co-modesum" aria-label="' + esc(tr('રીત પ્રમાણે કુલ', 'Total by mode')) + '">' + CO_MODES.filter(k => byMode[k]).map(k =>
+      '<span class="co-ms' + (k === 'cash' ? ' cash' : '') + '">' + esc(coModeT(k)) + ' <b>' + inr(byMode[k]) + '</b></span>').join('') + '</div>';
   }
   h += td.length
     ? '<div class="wa-list co-list">' + td.map(p => WA.row({
       name: p.client_name, time: inr(p.amount), timeHot: true,
-      preview: esc(coModeGu(p.mode) + ' · ' + coTime(p.time)), act: 'co-noop'
+      preview: esc(coModeT(p.mode) + ' · ' + coTime(p.time)), act: 'co-noop'
     })).join('') + '</div>'
-    : '<div class="empty">આજે હજી કોઈ કલેક્શન નથી.</div>';
+    : '<div class="empty">' + tr('આજે હજી કોઈ કલેક્શન નથી.', 'No collection yet today.') + '</div>';
   el.innerHTML = h;
 });
 
@@ -192,19 +209,19 @@ const coLocked = () => CO.busy || Date.now() < CO.lockUntil;
 // Returns {text, bad}: bad = true shows it in red (amount more than the balance).
 function coNote(amt, bal, mode) {
   const n = Number(amt);
-  if (amt !== '' && n > bal) return { text: 'રકમ બાકી ' + inr(bal) + ' કરતાં વધારે છે. સાચી રકમ લખો.', bad: true };
-  if (!(n > 0)) return { text: 'કેટલા મળ્યા તે લખો, પછી રીત પસંદ કરો.', bad: false };
-  if (!mode) return { text: 'કઈ રીતે મળ્યા? ઉપર રોકડ / UPI / ચેક… પસંદ કરો.', bad: false };
-  return { text: n === bal ? 'પૂરું પેમેન્ટ ✓' : 'અધૂરું પેમેન્ટ. બાકી ' + inr(bal - n) + ' આગળ જમા રહેશે.', bad: false };
+  if (amt !== '' && n > bal) return { text: tr('રકમ બાકી ' + inr(bal) + ' કરતાં વધારે છે. સાચી રકમ લખો.', 'The amount is more than the balance ' + inr(bal) + '. Enter the right amount.'), bad: true };
+  if (!(n > 0)) return { text: tr('કેટલા મળ્યા તે લખો, પછી રીત પસંદ કરો.', 'Enter how much you got, then pick the mode.'), bad: false };
+  if (!mode) return { text: tr('કઈ રીતે મળ્યા? ઉપર રોકડ / UPI / ચેક… પસંદ કરો.', 'How was it paid? Pick Cash / UPI / Cheque… above.'), bad: false };
+  return { text: n === bal ? tr('પૂરું પેમેન્ટ ✓', 'Full payment ✓') : tr('અધૂરું પેમેન્ટ. બાકી ' + inr(bal - n) + ' આગળ જમા રહેશે.', 'Part payment. The rest, ' + inr(bal - n) + ', stays due.'), bad: false };
 }
 const coAmtOk = (amt, bal) => Number(amt) > 0 && Number(amt) <= bal;
 // Send can be pressed only with a good amount AND a mode, and when nothing is being saved
 const coCanSend = c => !!c && coAmtOk(c.amt, c.balance) && CO_MODES.includes(c.mode) && !coLocked();
 
 // Office message with the new balance (after a payment)
-const coBalBubble = (bal, time) => WA.bubble('in', bal > 0 ? 'બાકી <b>' + inr(bal) + '</b>' : '<b>પૂરું ચૂકવાઈ ગયું ✓</b>', time, { who: CO_OFFICE });
+const coBalBubble = (bal, time) => WA.bubble('in', bal > 0 ? tr('બાકી', 'Balance') + ' <b>' + inr(bal) + '</b>' : '<b>' + tr('પૂરું ચૂકવાઈ ગયું ✓', 'Fully paid ✓') + '</b>', time, { who: TX.office });
 // "₹1,000 મળ્યા · UPI" with two ticks (like a delivered message)
-const coPaidBubble = (amt, mode, note, time) => WA.bubble('out', '<b>' + inr(amt) + '</b> મળ્યા · ' + esc(coModeGu(mode)) +
+const coPaidBubble = (amt, mode, note, time) => WA.bubble('out', '<b>' + inr(amt) + '</b> ' + tr('મળ્યા', 'received') + ' · ' + esc(coModeT(mode)) +
   (note ? '<br><span class="sub">' + esc(note) + '</span>' : ''), time, { ticks: 2 });
 
 // The bottom of the chat: payment mode chips, then the message box with the amount
@@ -212,22 +229,22 @@ function coComposer() {
   const c = CO.chat;
   const note = coNote(c.amt, c.balance, c.mode);
   return '<div class="co-pay">' +
-    '<div class="wa-chips co-modes" role="group" aria-label="કઈ રીતે મળ્યા?">' +
-    CO_MODES.map(k => '<button aria-pressed="' + (c.mode === k) + '" data-act="co-mode" data-v="' + k + '">' + esc(MODE[k].gu) + '</button>').join('') +
+    '<div class="wa-chips co-modes" role="group" aria-label="' + esc(tr('કઈ રીતે મળ્યા?', 'How was it paid?')) + '">' +
+    CO_MODES.map(k => '<button aria-pressed="' + (c.mode === k) + '" data-act="co-mode" data-v="' + k + '">' + esc(lbl(MODE[k])) + '</button>').join('') +
     '</div>' +
     '<div class="wa-compose"><div class="box-in co-box">' +
     '<div class="co-amt-line"><span class="co-rs" aria-hidden="true">₹</span>' +
-    '<input id="co-amt" inputmode="numeric" autocomplete="off" placeholder="કેટલા મળ્યા?" aria-label="કેટલા મળ્યા? (₹)" aria-describedby="co-note"' +
+    '<input id="co-amt" inputmode="numeric" autocomplete="off" placeholder="' + esc(tr('કેટલા મળ્યા?', 'Amount received')) + '" aria-label="' + esc(tr('કેટલા મળ્યા? (₹)', 'Amount received (₹)')) + '" aria-describedby="co-note"' +
     (note.bad ? ' aria-invalid="true"' : '') + ' value="' + esc(c.amt) + '" data-inp="co-amt">' +
-    '<button class="co-full" data-act="co-full">પૂરી રકમ</button></div>' +
-    '<input id="co-note-in" class="co-note-in" autocomplete="off" placeholder="નોંધ (જરૂરી નથી)" aria-label="નોંધ (જરૂરી નથી)" value="' + esc(c.note) + '" data-inp="co-note">' +
+    '<button class="co-full" data-act="co-full">' + tr('પૂરી રકમ', 'Full amount') + '</button></div>' +
+    '<input id="co-note-in" class="co-note-in" autocomplete="off" placeholder="' + esc(tr('નોંધ (જરૂરી નથી)', 'Note (optional)')) + '" aria-label="' + esc(tr('નોંધ (જરૂરી નથી)', 'Note (optional)')) + '" value="' + esc(c.note) + '" data-inp="co-note">' +
     '</div>' +
-    '<button class="wa-send" id="co-save" data-act="co-save" aria-label="આગળ: રકમ ચકાસો"' + (coCanSend(c) ? '' : ' disabled') + '>' + WA.icons.send + '</button></div>' +
+    '<button class="wa-send" id="co-save" data-act="co-save" aria-label="' + esc(tr('આગળ: રકમ ચકાસો', 'Next: check the amount')) + '"' + (coCanSend(c) ? '' : ' disabled') + '>' + WA.icons.send + '</button></div>' +
     '<div class="co-hint' + (note.bad ? ' co-err' : '') + '" id="co-note" role="status">' + esc(note.text) + '</div></div>';
 }
 
 // When the client has paid everything, the message box is replaced by one "back" button
-const coDoneBottom = () => WA.quick([{ label: 'યાદી પર પાછા જાઓ', act: 'co-back', cls: 'pri full' }]);
+const coDoneBottom = () => WA.quick([{ label: TX.back_to_list, act: 'co-back', cls: 'pri full' }]);
 
 function coOpenChat(r) {
   // Payments already taken today for this order (oldest first)
@@ -238,20 +255,22 @@ function coOpenChat(r) {
     balance: r.balance, amt: '', mode: '', note: '', noWa: coNoWa(r) };   // EMPTY box and no mode: the collector must type and pick (money safety)
   CO.ask = null;
 
-  const call = '<a class="wa-ib" href="' + telUrl(r.phone) + '" aria-label="કૉલ કરો">' + WA.icons.call + '</a>';
-  const head = WA.chatHead({ title: r.client_name, sub: coAreaGu(coArea(r)), back: 'co-back', right: call });
+  const call = '<a class="wa-ib" href="' + telUrl(r.phone) + '" aria-label="' + esc(TX.call_aria) + '">' + WA.icons.call + '</a>';
+  const head = WA.chatHead({ title: r.client_name, sub: coAreaT(coArea(r)), back: 'co-back', right: call });
 
   // First message: from the office, what is due and where
-  let msgs = WA.day('આજે') + WA.bubble('in',
-    'બાકી રકમ <b class="co-big">' + inr(before) + '</b>' +
-    '<dl class="kv"><dt>સરનામું</dt><dd>' + esc(r.address || '') + '</dd>' +
-    '<dt>વિસ્તાર</dt><dd>' + esc(coAreaGu(coArea(r))) + '</dd>' +
-    '<dt>ફોન</dt><dd><a href="' + telUrl(r.phone) + '">' + esc(phoneText(r.phone)) + '</a></dd></dl>' +
-    (coNoWa(r) ? '<div class="co-nowa">' + esc(GU.receipt_in_person) + '</div>' : ''), '', { who: CO_OFFICE });
+  let msgs = WA.day(TX.today) + WA.bubble('in',
+    tr('બાકી રકમ', 'Balance due') + ' <b class="co-big">' + inr(before) + '</b>' +
+    '<dl class="kv"><dt>' + TX.address + '</dt><dd>' + esc(r.address || '') + '</dd>' +
+    '<dt>' + TX.area + '</dt><dd>' + esc(coAreaT(coArea(r))) + '</dd>' +
+    '<dt>' + TX.phone + '</dt><dd><a href="' + telUrl(r.phone) + '">' + esc(phoneText(r.phone)) + '</a></dd></dl>' +
+    (coNoWa(r) ? '<div class="co-nowa">' + esc(TX.receipt_in_person) + '</div>' : ''), '', { who: TX.office });
   paidToday.forEach(p => { msgs += coPaidBubble(p.amount, p.mode, '', coTime(p.time)); });
   if (paidToday.length) msgs += coBalBubble(r.balance, '');
-  msgs += WA.sys('રકમ લખો, રીત પસંદ કરો અને મોકલો દબાવો. "હા, સેવ કરો" પછી જ પેમેન્ટ સેવ થશે' +
-    (coNoWa(r) ? '. ગ્રાહકને WhatsApp નથી: રસીદ મોઢે જણાવો.' : ' અને ગ્રાહકને WhatsApp જશે.'));
+  msgs += WA.sys(tr('રકમ લખો, રીત પસંદ કરો અને મોકલો દબાવો. "હા, સેવ કરો" પછી જ પેમેન્ટ સેવ થશે' +
+    (coNoWa(r) ? '. ગ્રાહકને WhatsApp નથી: રસીદ મોઢે જણાવો.' : ' અને ગ્રાહકને WhatsApp જશે.'),
+    'Enter the amount, pick the mode and press send. The payment is saved only after "Yes, save"' +
+    (coNoWa(r) ? '. The customer has no WhatsApp: tell the receipt in person.' : ', and the customer gets a WhatsApp.')));
 
   WA.openChat(head, msgs, r.balance > 0 ? coComposer() : coDoneBottom());
   WA.pushBack();   // the phone's back button closes the chat
@@ -329,14 +348,14 @@ const CO_CLOCK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" str
 function coPendBubble(f, state) {
   const fail = state === 'fail';
   return '<div class="bub out co-pend' + (fail ? ' bad co-fail' : '') + '" id="co-pend"' +
-    (fail ? ' data-act="co-retry" role="button" tabindex="0" aria-label="ફરી મોકલો"' : '') + '>' +
-    '<b>' + inr(f.amt) + '</b> મળ્યા · ' + esc(coModeGu(f.mode)) +
+    (fail ? ' data-act="co-retry" role="button" tabindex="0" aria-label="' + esc(tr('ફરી મોકલો', 'Send again')) + '"' : '') + '>' +
+    '<b>' + inr(f.amt) + '</b> ' + tr('મળ્યા', 'received') + ' · ' + esc(coModeT(f.mode)) +
     (f.note ? '<br><span class="sub">' + esc(f.note) + '</span>' : '') +
-    (fail ? '<span class="co-failtxt">મોકલાયું નહીં · ફરી મોકલો</span>' : '') +
+    (fail ? '<span class="co-failtxt">' + TX.not_sent_retry + '</span>' : '') +
     '<span class="meta">' + esc(f.time) + (fail ? '' : '<span class="co-clock">' + CO_CLOCK + '</span>') + '</span></div>';
 }
 // While a payment is on its way, the message box is replaced by a quiet line (no second payment meanwhile)
-const coWaitBottom = () => '<div class="co-pay co-wait">મોકલાય છે…</div>';
+const coWaitBottom = () => '<div class="co-pay co-wait">' + TX.sending + '</div>';
 // Put a new bottom (message box, waiting line or back button) in place of the old one
 function coSetBottom(html) {
   const old = $('#ph-chat .co-pay') || $('#ph-chat .wa-qr');
@@ -394,13 +413,13 @@ async function coSend(f) {
     const box = $('#wa-msgs');
     box.insertAdjacentHTML('beforeend', coBalBubble(c.balance, coNowTime()));
     // No WhatsApp: no thank-you message went out, so say the receipt in person
-    if (c.noWa) box.insertAdjacentHTML('beforeend', WA.bubble('in', '<b>' + esc(GU.receipt_in_person) + '</b><div>' + esc(coSayReceipt(f.amt, c.balance)) + '</div>', '', { who: CO_OFFICE, cls: 'warn' }));
+    if (c.noWa) box.insertAdjacentHTML('beforeend', WA.bubble('in', '<b>' + esc(TX.receipt_in_person) + '</b><div>' + coSayReceipt(f.amt, c.balance) + '</div>', '', { who: TX.office, cls: 'warn' }));
     // Still money due: an EMPTY box with no mode for the next part payment (never refilled with the balance).
     // Paid up: show a back button.
     coAfterSaved(c);
     box.scrollTop = box.scrollHeight;
   } else {
-    toast(inr(f.amt) + ' મળ્યા ✓');
+    toast(inr(f.amt) + tr(' મળ્યા ✓', ' received ✓'));
   }
   coLoad();   // refresh the list behind the chat (in the background)
 }
@@ -436,18 +455,18 @@ function coConfirmHtml(f) {
   const small = f.amt < f.before * 0.5;   // less than half of what is due: maybe a typo (200 instead of 2000)
   return '<div class="co-cf" id="co-cf" role="dialog" aria-modal="true" aria-labelledby="co-cf-amt">' +
     '<div class="co-cf-card">' +
-    '<div class="co-cf-q">આ પેમેન્ટ સેવ કરવું છે?</div>' +
-    '<div class="co-cf-amt" id="co-cf-amt">' + inr(f.amt) + ' · ' + esc(coModeGu(f.mode)) + '</div>' +
+    '<div class="co-cf-q">' + tr('આ પેમેન્ટ સેવ કરવું છે?', 'Save this payment?') + '</div>' +
+    '<div class="co-cf-amt" id="co-cf-amt">' + inr(f.amt) + ' · ' + esc(coModeT(f.mode)) + '</div>' +
     '<div class="co-cf-nm">' + esc(CO.chat ? CO.chat.name : '') + '</div>' +
     (f.note ? '<div class="co-cf-note">' + esc(f.note) + '</div>' : '') +
-    '<div class="co-cf-left' + (left > 0 ? '' : ' full') + '">' + (left > 0 ? 'બાકી રહેશે <b>' + inr(left) + '</b>' : '<b>પૂરું ચૂકવાઈ જશે ✓</b>') + '</div>' +
-    (small ? '<div class="co-cf-warn" role="alert">ઓછી રકમ છે, બરાબર છે?</div>' : '') +
+    '<div class="co-cf-left' + (left > 0 ? '' : ' full') + '">' + (left > 0 ? tr('બાકી રહેશે', 'Still due') + ' <b>' + inr(left) + '</b>' : '<b>' + tr('પૂરું ચૂકવાઈ જશે ✓', 'Will be fully paid ✓') + '</b>') + '</div>' +
+    (small ? '<div class="co-cf-warn" role="alert">' + tr('ઓછી રકમ છે, બરાબર છે?', 'This is a small amount. Is it right?') + '</div>' : '') +
     // No WhatsApp: instead of the thank-you WhatsApp note, the receipt is said in person
-    (CO.chat && CO.chat.noWa ? '<div class="co-nowa">' + esc(GU.receipt_in_person) + '<br>' + esc(coSayReceipt(f.amt, left)) + '</div>' : '') +
+    (CO.chat && CO.chat.noWa ? '<div class="co-nowa">' + esc(TX.receipt_in_person) + '<br>' + coSayReceipt(f.amt, left) + '</div>' : '') +
     // Both buttons start switched off for a moment, so the second tap of a double tap on send cannot press them
     '<div class="co-cf-btns">' +
-    '<button class="co-cf-no" data-act="co-change" disabled>બદલો</button>' +
-    '<button class="co-cf-yes" id="co-yes" data-act="co-yes" disabled>હા, સેવ કરો</button>' +
+    '<button class="co-cf-no" data-act="co-change" disabled>' + tr('બદલો', 'Change') + '</button>' +
+    '<button class="co-cf-yes" id="co-yes" data-act="co-yes" disabled>' + tr('હા, સેવ કરો', 'Yes, save') + '</button>' +
     '</div></div></div>';
 }
 function coCloseConfirm() {
@@ -501,7 +520,7 @@ onAct('co-yes', async () => {
       const pend = $('#co-pend'), done = coPaidBubble(prev.amt, prev.mode, prev.note, prev.time);
       if (pend) pend.outerHTML = done; else $('#wa-msgs').insertAdjacentHTML('beforeend', done);
       c.balance = saved.balance;
-      $('#wa-msgs').insertAdjacentHTML('beforeend', coBalBubble(c.balance, coNowTime()) + WA.sys('આ પેમેન્ટ પહેલેથી સેવ થયું હતું.'));
+      $('#wa-msgs').insertAdjacentHTML('beforeend', coBalBubble(c.balance, coNowTime()) + WA.sys(tr('આ પેમેન્ટ પહેલેથી સેવ થયું હતું.', 'This payment was already saved.')));
       coAfterSaved(c);
       cacheDrop(['ledger.get']); coLoad();
       return;

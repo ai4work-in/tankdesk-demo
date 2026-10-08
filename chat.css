@@ -153,3 +153,8 @@ body:has(#ph-chat:not([hidden])) #toasts{bottom:calc(150px + env(safe-area-inset
 @media (max-width:640px){
   .desk .content>.sec>header p.sub{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 }
+
+/* "In English: ..." under Gujarati customer text (English mode on the phone, and always on the admin
+   client history). The customer gets only the Gujarati words; this is the meaning for staff. */
+.en-mean{display:block;margin-top:4px;font-size:12.5px;font-weight:400;font-style:normal;line-height:1.4;color:var(--muted)}
+.en-mean b{font-weight:600}
