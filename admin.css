@@ -353,7 +353,7 @@
 .ao-om:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #ad-orders .ao-tbl tr td.c-act{width:40px;padding-left:0;text-align:right}
 /* the small menu under the button */
-.ao-pop{position:fixed;z-index:40;min-width:190px;background:var(--surface);border:1px solid var(--line);border-radius:12px;
+.ao-pop{position:fixed;z-index:46;min-width:190px;background:var(--surface);border:1px solid var(--line);border-radius:12px;
   box-shadow:var(--shadow);padding:4px;display:flex;flex-direction:column}
 .ao-pop[hidden]{display:none}
 .ao-poph{font-size:11.5px;color:var(--muted);padding:6px 10px 4px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
@@ -375,7 +375,7 @@
 .ins-msgs .bub.ins-cx{opacity:.62}
 .ins-msgs .bub.ins-cx .ins-om{opacity:1}
 /* the panel / dialog box */
-.ao-modal{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px}
+.ao-modal{position:fixed;inset:0;z-index:48;display:flex;align-items:center;justify-content:center;padding:16px}
 .ao-modal[hidden]{display:none}
 .ao-scrim{position:absolute;inset:0;background:color-mix(in srgb,var(--head) 55%,transparent)}
 .ao-dlg{position:relative;background:var(--surface);color:var(--fg);border-radius:16px;box-shadow:var(--shadow);width:min(460px,100%);
@@ -640,3 +640,114 @@ body.ao-noscroll{overflow:hidden}
 .ins-tanks{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-top:4px;font-size:13px}
 .ins-tanks .num{white-space:nowrap}
 .ins-tk{display:block}
+
+/* ==========================================================================
+   Usability round, 8 Oct 2026 (OFFICE screens)
+   ========================================================================== */
+
+/* New order: Today / Tomorrow chips above the date box; the hint under Next visit */
+.ao-dq{margin-bottom:6px}
+.ao-dq .chip{min-height:36px}
+#ad-new #ao-date-n,.ao-nvn{display:block;margin-top:4px;font-size:12.5px}
+/* the team suggestion right above Save: only on a phone (on a computer it is in the side panel) */
+.ao-sgm{display:none}
+@media (max-width:900px){
+  .ao-sgm:not(:empty){display:block;margin:4px 0 10px;padding:10px 12px;border-radius:10px;background:var(--accent-soft)}
+  .ao-sgm p{margin:0}
+  .ao-sgm p+p{margin-top:2px}
+}
+/* "Book as AMC visit 2/4" in the returning-client card */
+.ao-amcnext{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+
+/* Orders: search box above the filters; phone numbers are tap-to-call links */
+.ao-search{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-bottom:10px}
+.ao-search .ins-sbox{flex:1 1 260px;max-width:420px;background:var(--surface);box-shadow:0 0 0 1px var(--line);height:44px}
+.ao-search .ins-sbox:focus-within{box-shadow:0 0 0 2px var(--accent)}
+a.ao-tel{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px}
+a.ao-tel:hover{color:var(--accent);text-decoration-color:var(--accent)}
+
+/* Smart assign preview: job -> team, one line each */
+.ao-plan{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:8px 0}
+.ao-planr{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line)}
+.ao-planr:first-child{border-top:0}
+.ao-arrow{color:var(--muted);font-size:18px}
+.ao-plan2 .fsel{width:100%}
+.ao-plan2 .sub{font-size:12px;margin-top:2px}
+@media (max-width:520px){
+  .ao-planr{grid-template-columns:minmax(0,1fr)}
+  .ao-arrow{display:none}
+}
+
+/* Quotation: the in-dialog "Send the quotation?" box and the team suggestion */
+.ao-qconf{margin-top:10px}
+.ao-qconf b{display:block;margin-bottom:2px}
+.ao-qsg{margin-top:4px;font-size:12.5px}
+
+/* Team routes: call the customer from the stop */
+.ao-scall{display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;border-radius:99px;font-size:12.5px;font-weight:600;
+  color:var(--accent);background:var(--accent-soft);text-decoration:none;vertical-align:1px}
+.ao-scall svg{width:14px;height:14px}
+
+/* Dashboard alerts: Open order / Call customer / Reschedule under each alert */
+.ins-fa{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.ins-fa .btn{min-height:34px}
+.ins-fcall{display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:var(--fg)}
+.ins-fcall svg{color:var(--accent)}
+.ins-fcall svg{width:15px;height:15px}
+.ins-feed{max-height:520px}
+
+/* Start AMC: the last bill next to the worked-out price */
+.ins-amclast{margin-top:6px}
+.ins-amclast .box{margin-top:6px}
+
+/* Client page on a phone: the card at the top folds to one line once the history is scrolled */
+.ins-pinline{display:none}
+@media (max-width:640px){
+  .ins-pinmin .ins-pin>*:not(.ins-pinline){display:none}
+  .ins-pinmin .ins-pinline{display:flex;width:100%;align-items:center;gap:6px;flex-wrap:wrap;border:0;background:none;padding:2px 0;
+    font:inherit;font-size:13.5px;text-align:left;color:var(--fg);cursor:pointer;min-height:40px}
+  .ins-pinmore{margin-left:auto;color:var(--accent);font-weight:600}
+}
+
+/* Log book: costs are saved box by box; the small note next to the total */
+.lb-ss{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+.lb-ok{color:var(--accent);font-weight:600}
+.lb-bad{color:var(--bad);font-weight:600}
+.lb-warn{margin-bottom:12px}
+.lb-warn .btn{margin-left:4px}
+
+/* Office on a phone (up to 640 px): a fixed menu at the bottom instead of the top row */
+.ad-bnav,#ad-more{display:none}
+@media (max-width:640px){
+  .desk .side{display:none}
+  .ad-bnav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;z-index:40;
+    background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);box-shadow:0 -2px 8px rgba(0,0,0,.06)}
+  .ad-bnav button{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:58px;
+    border:0;background:none;color:var(--muted);font:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:6px 2px}
+  .ad-bnav button span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ad-bnav svg{width:22px;height:22px}
+  .ad-bnav button[aria-current="page"]{color:var(--fg)}
+  .ad-bnav button[aria-current="page"]::before{content:"";position:absolute;top:0;left:22%;right:22%;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+  .ad-bnav .bd{position:absolute;top:5px;left:calc(50% + 6px);font-style:normal;font-size:10.5px;min-width:18px;padding:0 5px;border-radius:99px;
+    background:var(--bad);color:#fff;line-height:18px}
+  /* room for the bar under the page and the footer, and toasts above it */
+  #v-admin{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+  body:has(#v-admin:not([hidden])) #toasts{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+  #ad-clients.ins-open .ins-split{height:calc(100dvh - 24px - 64px)}
+  /* the "More" sheet */
+  #ad-more:not([hidden]){display:block;position:fixed;inset:0;z-index:45}
+  #ad-more .scrim{position:absolute;inset:0;background:rgba(0,0,0,.35)}
+  .ad-moresheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:8px 0 calc(66px + env(safe-area-inset-bottom,0px));
+    max-height:80vh;overflow:auto}
+  .ad-moresheet button{display:flex;align-items:center;gap:14px;width:100%;min-height:56px;padding:8px 18px;border:0;background:none;font:inherit;color:var(--fg);text-align:left;cursor:pointer}
+  .ad-moresheet button[aria-current="page"]{background:var(--accent-soft)}
+  .ad-moresheet svg{width:22px;height:22px;flex:none;color:var(--muted)}
+  .ad-moresheet b{display:block;font-size:15px}
+  .ad-moresheet small{display:block;color:var(--muted);font-size:12.5px}
+  .ad-moreout{border-top:1px solid var(--line) !important}
+}
+@media print{
+  .ad-bnav,#ad-more,.lb-ss,#lb-warn{display:none !important}
+}
+/* cancelled payments in the client history. (Office dialogs .ao-modal z-index 48 and the ⋯ menu 46 sit above the phone bottom menu, 40; toasts stay on top at 50.) */
+.ins-pbgone s{opacity:.7}

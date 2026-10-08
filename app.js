@@ -213,6 +213,7 @@ function renderAdmin() {
   // a Log out link that is always visible (on a phone-width screen the header with
   // the logout icon is hidden), and "Install app" when the browser offers it.
   renderAdminFoot(agency);
+  renderAdminBottomNav(nav);             // phone only (admin.css shows it up to 640 px)
   setAlertBadge(App.alertUnseen || 0);   // redraw the last known count, no server trip
 
   // Show only the open section
@@ -228,7 +229,58 @@ function renderAdmin() {
   }
 }
 
-onAct('tab', el => { App.adminTab = el.dataset.t; renderAdmin(); });
+onAct('tab', el => {
+  const t = el.dataset.t;
+  closeAdminMore();
+  // A screen may ask to stay first (the Log book, when typed costs could not be saved)
+  if (t !== App.adminTab && App.leaveGuard && !App.leaveGuard(t)) return;
+  App.adminTab = t; renderAdmin();
+  if (window.matchMedia && window.matchMedia('(max-width:640px)').matches) window.scrollTo(0, 0);
+});
+
+/* ---------- office on a phone: a fixed menu at the bottom (usability round 2026-10-08) ----------
+   On a screen up to 640 px wide the top menu row is hidden (admin.css) and this bar is shown:
+   Dashboard, New order, Orders, Payments, and More (a small sheet with the other screens).
+   It is drawn by renderAdmin() into #ad-bnav (made here once). */
+const ADMIN_BNAV = ['dash', 'new', 'orders', 'pay'];
+const BNAV_SHORT = { dash: 'Dashboard', new: 'New', orders: 'Orders', pay: 'Payments' };
+function renderAdminBottomNav(nav) {
+  let bar = document.getElementById('ad-bnav');
+  if (!bar) {
+    bar = document.createElement('nav');
+    bar.id = 'ad-bnav'; bar.className = 'ad-bnav'; bar.setAttribute('aria-label', 'Main menu');
+    $('#v-admin').appendChild(bar);
+  }
+  const main = ADMIN_BNAV.filter(k => nav.some(n => n[0] === k));
+  const rest = nav.filter(n => !main.includes(n[0]));
+  const icon = k => { const n = nav.find(x => x[0] === k); return n && WA.icons[n[3]] ? WA.icons[n[3]] : ''; };
+  const inMore = rest.some(n => n[0] === App.adminTab);
+  bar.innerHTML = main.map(k => '<button data-act="tab" data-t="' + k + '"' + (App.adminTab === k ? ' aria-current="page"' : '') + '>' + icon(k) +
+      '<span>' + esc(k === 'new' ? word('New order').replace(/ order| task/i, '') : BNAV_SHORT[k]) + '</span>' +
+      (k === 'dash' && App.alertUnseen ? '<i class="bd bad">' + App.alertUnseen + '</i>' : '') + '</button>').join('') +
+    (rest.length ? '<button data-act="ad-more" aria-haspopup="true" aria-expanded="false"' + (inMore ? ' aria-current="page"' : '') + '>' +
+      WA.icons.more + '<span>' + esc(inMore ? (rest.find(n => n[0] === App.adminTab) || ['', 'More'])[1] : 'More') + '</span></button>' : '');
+  // the "More" sheet: the other screens and Log out
+  let more = document.getElementById('ad-more');
+  if (!more) { more = document.createElement('div'); more.id = 'ad-more'; more.hidden = true; $('#v-admin').appendChild(more); }
+  more.innerHTML = '<div class="scrim" data-act="ad-more-close"></div><div class="ad-moresheet" role="menu">' +
+    rest.map(n => '<button role="menuitem" data-act="tab" data-t="' + n[0] + '"' + (App.adminTab === n[0] ? ' aria-current="page"' : '') + '>' +
+      (WA.icons[n[3]] || '') + '<span><b>' + esc(n[1]) + '</b><small>' + esc(n[2]) + '</small></span></button>').join('') +
+    '<button role="menuitem" data-act="logout" class="ad-moreout">' + WA.icons.logout + '<span><b>Log out</b></span></button></div>';
+}
+function closeAdminMore() {
+  const m = document.getElementById('ad-more');
+  if (m) m.hidden = true;
+  const b = document.querySelector('#ad-bnav [data-act="ad-more"]');
+  if (b) b.setAttribute('aria-expanded', 'false');
+}
+onAct('ad-more', el => {
+  const m = document.getElementById('ad-more');
+  if (!m) return;
+  m.hidden = !m.hidden;
+  el.setAttribute('aria-expanded', String(!m.hidden));
+});
+onAct('ad-more-close', closeAdminMore);
 
 function renderAdminFoot(agency) {
   const name = App.session && App.session.name;
@@ -280,6 +332,12 @@ async function refreshAlertBadge() {
     count it already loaded, so no extra trip to the server is needed. */
 function setAlertBadge(n) {
   App.alertUnseen = n || 0;
+  // the phone's bottom menu shows the count on "Dashboard" too
+  const bb = document.querySelector('#ad-bnav [data-t="dash"]');
+  if (bb) {
+    const ob = bb.querySelector('.bd'); if (ob) ob.remove();
+    if (App.alertUnseen > 0) bb.insertAdjacentHTML('beforeend', '<i class="bd bad">' + App.alertUnseen + '</i>');
+  }
   const row = document.querySelector('#ad-side [data-t="dash"] .l2');
   if (!row) return;
   const old = row.querySelector('.bd');

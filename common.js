@@ -117,8 +117,18 @@ const REASON = {
   traffic: { en: 'Heavy traffic', gu: 'ટ્રાફિક બહુ છે' },
   prev: { en: 'Earlier job took longer', gu: 'પહેલાના કામમાં વધારે સમય લાગ્યો' },
   vehicle: { en: 'Vehicle problem', gu: 'ગાડીમાં તકલીફ થઈ' },
-  other: { en: 'An unavoidable reason', gu: 'એક અનિવાર્ય કારણ' }
+  // 'other': the driver's chip says "some other reason"; the CUSTOMER still hears the polite
+  // "એક અનિવાર્ય કારણ" (cust / custEn = the customer's words, as whatsapp.gs REASON_GU).
+  other: { en: 'Some other reason', gu: 'બીજું કોઈ કારણ', cust: 'એક અનિવાર્ય કારણ', custEn: 'An unavoidable reason' },
+  // End-of-day reasons (DRIVER, added 2026-10-08): only for moving a job to another day.
+  not_home: { en: 'Customer not home', gu: 'ગ્રાહક ઘરે નથી', cust: 'તમે ઘરે ન હતા', custEn: 'You were not at home' },
+  cust_later: { en: 'Customer asked for later', gu: 'ગ્રાહકે પછી આવવા કહ્યું', cust: 'તમે પછી આવવા કહ્યું', custEn: 'You asked us to come later' },
+  time_out: { en: 'Time ran out', gu: 'સમય પૂરો થઈ ગયો', cust: 'આજનો કામનો સમય પૂરો થઈ ગયો', custEn: "Today's working time ran out" },
+  not_empty: { en: 'Tank not emptied', gu: 'ટાંકી ખાલી નથી', cust: 'ટાંકી ખાલી ન હતી', custEn: 'The tank was not emptied' }
 };
+// The words the CUSTOMER hears for a reason key (Gujarati / English meaning): cust if set, else gu / en
+const reasonCust = k => { const r = REASON[k] || REASON.other; return r.cust || r.gu; };
+const reasonCustEn = k => { const r = REASON[k] || REASON.other; return r.custEn || r.en; };
 const MODE = {
   cash: { en: 'Cash', gu: 'રોકડ' },
   upi: { en: 'UPI', gu: 'UPI' },
@@ -255,7 +265,16 @@ const GU = {
   tank_sizes: 'ટાંકીનું માપ',
   // language switch (the button shows the OTHER language)
   lang_other: 'English',
-  lang_label: 'ભાષા / Language'
+  lang_label: 'ભાષા / Language',
+  // ---- DRIVER words (usability round, added 2026-10-08) ----
+  cf_yes: 'હા, બરાબર છે',            // the customer's answer in person (was "ગ્રાહક સંમત ✓")
+  cf_no: 'ના, ફરિયાદ છે',            // (was "ગ્રાહક અસંમત ✗")
+  size_diff: 'માપ અલગ છે',           // the tanks at the site differ from the saved sizes
+  office_informed: 'ઓફિસને જાણ કરી ✓',
+  tick_first: 'પહેલા ઉપર કામ ટિક કરો ↑',
+  day_done_btn: '🌙 આજે બસ, કાલે ફરી આવીશું',
+  job_done_btn: '✅ આખું કામ પૂરું',
+  call_these: 'આ ગ્રાહકોને ફોન કરો'
 };
 
 /* The same words in English (lang 'en'). Short and plain, for field staff. */
@@ -329,7 +348,16 @@ const EN = {
   litres: 'litres',
   tank_sizes: 'Tank sizes',
   lang_other: 'ગુજરાતી',
-  lang_label: 'Language'
+  lang_label: 'Language',
+  // ---- DRIVER words (usability round, added 2026-10-08) ----
+  cf_yes: 'Yes, all fine',
+  cf_no: 'No, complaint',
+  size_diff: 'Size is different',
+  office_informed: 'Office informed ✓',
+  tick_first: 'Tick the work above first ↑',
+  day_done_btn: '🌙 Done for today, back tomorrow',
+  job_done_btn: '✅ Whole job finished',
+  call_these: 'Call these customers'
 };
 
 /* What the customer is told, in English (only for the "In English: …" lines; the customer
@@ -376,13 +404,17 @@ const litresText = n => Math.round(Number(n) || 0).toLocaleString('en-IN');
 // Metres with two decimals, as on paper: 1.4 -> "1.40"
 const metres = n => (Number(n) || 0).toFixed(2);
 const tankHasSize = t => !!(t && t.l && t.w && t.h && (t.litres === null || t.litres === undefined || t.litres === ''));
+// Partition (added 8 Oct 2026, SUPERVISOR agent): " · part 2 of tank 3" when the tank is a part of an earlier one
+// (part_of = that tank's number, part_no worked out by the server)
+const tankPart = (t, lang) => !(t && Number(t.part_of) > 0) ? ''
+  : lang === 'gu' ? ' · ટાંકી ' + t.part_of + ' નો ભાગ ' + (t.part_no || 2) : ' · part ' + (t.part_no || 2) + ' of tank ' + t.part_of;
 /**
  * One tank as one line (English, admin and log book), with the material at the end:
  *   capacity: "2,000 L × 1 = OH · Cement"
  *   size:     "1.40 × 1.60 × 2.10 m = OH (4,704 L) · Cement"   (with "× 2" before "=" when there are 2)
  */
 function tankText(t) {
-  const n = Number(t.count) || 1, type = (TANK_TYPE[t.type] || { en: t.type || '' }).en, mat = ' · ' + TANK_MAT[tankMat(t)].en;
+  const n = Number(t.count) || 1, type = (TANK_TYPE[t.type] || { en: t.type || '' }).en, mat = ' · ' + TANK_MAT[tankMat(t)].en + tankPart(t, 'en');
   if (tankHasSize(t)) {
     return metres(t.l) + ' × ' + metres(t.w) + ' × ' + metres(t.h) + ' m' + (n > 1 ? ' × ' + n : '') + ' = ' + type +
       ' (' + litresText(tankTotal(t)) + ' L)' + mat;
@@ -391,7 +423,7 @@ function tankText(t) {
 }
 // The same in Gujarati words (driver and supervisor screens): "ઉપરની · સિમેન્ટ: 2,000 લિટર × 1"
 function tankTextGu(t) {
-  const n = Number(t.count) || 1, type = (TANK_TYPE[t.type] || { gu: t.type || '' }).gu + ' · ' + TANK_MAT[tankMat(t)].gu;
+  const n = Number(t.count) || 1, type = (TANK_TYPE[t.type] || { gu: t.type || '' }).gu + ' · ' + TANK_MAT[tankMat(t)].gu + tankPart(t, 'gu');
   if (tankHasSize(t)) {
     return type + ': ' + metres(t.l) + ' × ' + metres(t.w) + ' × ' + metres(t.h) + ' મી.' + (n > 1 ? ' × ' + n : '') +
       ' = ' + litresText(tankTotal(t)) + ' લિટર';

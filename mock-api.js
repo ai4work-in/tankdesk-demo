@@ -374,6 +374,9 @@ const MockAPI = (function () {
   // "a, b,c" or ['a','b'] -> ['a','b','c'] (setup.gs splitList_)
   const splitList = v => Array.isArray(v) ? v.map(String)
     : String(v === undefined || v === null ? '' : v).split(',').map(x => x.trim()).filter(x => x !== '');
+  // The reasons a driver may give for "I will be late" (orders.gs LATE_REASONS); the end-of-day
+  // reasons (not_home, cust_later, time_out, not_empty) are only for moving a job (added 2026-10-08)
+  const LATE_REASONS = ['traffic', 'prev', 'vehicle', 'other'];
   const reasonEn = k => MOVE_REASONS[k] ? MOVE_REASONS[k].en : (REASON[k] || REASON.other).en;
 
   /* ======================================================================
@@ -522,9 +525,11 @@ const MockAPI = (function () {
     return open.find(x => mins(x.sched_time) >= mins(o.sched_time)) || open[0] || null;
   }
 
-  function addAlert(type, sev, orderId, text) {
+  // seen = true: saved as already seen (the office's OWN actions: moved, cancelled, restored,
+  // AMC, quotation approved by an admin), as orders.gs addAlert (usability round 2026-10-08)
+  function addAlert(type, sev, orderId, text, seen) {
     const at = nowIso();
-    db.alerts.push({ alert_id: alertId(at), created_at: at, type, sev, order_id: orderId || '', text, seen: false });
+    db.alerts.push({ alert_id: alertId(at), created_at: at, type, sev, order_id: orderId || '', text, seen: seen === true });
   }
   // Pretend to send a WhatsApp message: only written to the fake MessageLog
   // (the real server writes the Gujarati text; the mock writes the params)
@@ -625,13 +630,21 @@ const MockAPI = (function () {
   const numOrNull = v => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v);
   // As saved in the Sheet (total_litres is never stored)
   // (a function declaration, because the sample archive above already uses it)
-  function tankForSheet(t) { return { type: t.type, material: tankMat(t), litres: t.litres, l: t.l, w: t.w, h: t.h, count: t.count }; }
+  function tankForSheet(t) {
+    const out = { type: t.type, material: tankMat(t), litres: t.litres, l: t.l, w: t.w, h: t.h, count: t.count };
+    if (t.part_of) out.part_of = t.part_of;   // partition: "part of tank N" (added 8 Oct 2026)
+    return out;
+  }
   // Saved tanks -> tanks for the app, each with total_litres = litres x count (tankLitres in common.js)
   function tanksOut(list) {
-    return (Array.isArray(list) ? list : []).filter(t => t && typeof t === 'object').map(t => {
+    const parts = {};   // partition: first tank number -> parts seen so far
+    return (Array.isArray(list) ? list : []).filter(t => t && typeof t === 'object').map((t, i) => {
       const out = { type: String(t.type || '').toUpperCase(), material: tankMat(t), litres: numOrNull(t.litres), l: numOrNull(t.l), w: numOrNull(t.w), h: numOrNull(t.h),
         count: Math.max(1, Math.round(Number(t.count) || 1)) };
       out.total_litres = tankLitres(out) * out.count;
+      // part_of = an EARLIER tank's number; part_no (worked out, never stored) = 2, 3 ... (orders.gs tanksOut_)
+      const po = Number(t.part_of);
+      if (po >= 1 && po <= i && Math.floor(po) === po) { parts[po] = (parts[po] || 1) + 1; out.part_of = po; out.part_no = parts[po]; }
       return out;
     });
   }
@@ -673,7 +686,14 @@ const MockAPI = (function () {
       // A plastic tank is never bigger than plastic_max_litres (each tank, not the count)
       const max = setting('plastic_max_litres', 5000);
       if (material === 'plastic' && tankLitres({ litres, l, w, h }) > max) fail('BAD_INPUT', n + 'a plastic tank can be at most ' + litresText(max) + ' litres.');
-      return { type, material, litres, l, w, h, count };
+      const tank = { type, material, litres, l, w, h, count };
+      // Partition (added 8 Oct 2026): optional part_of = the number of an earlier tank
+      if (t.part_of !== undefined && t.part_of !== null && t.part_of !== '' && t.part_of !== 0) {
+        const po = Number(t.part_of);
+        if (!(po >= 1 && po <= i && Math.floor(po) === po)) fail('BAD_INPUT', n + 'part_of must be the number of an earlier tank.');
+        tank.part_of = po;
+      }
+      return tank;
     });
   }
   // The worker names of one team (Teams column worker_names) as a list
@@ -962,6 +982,13 @@ const MockAPI = (function () {
       }
     });
     if (has('tanks')) out.tanks = cleanTanks(input.tanks);   // BAD_INPUT if a tank is wrong
+    // Services follow the tanks (orders.gs cleanOrderInput_, usability round 2026-10-08): with a
+    // tank-priced cleaning service, every tank position gets its cleaning service (OH -> ot, UG -> ug)
+    if (modOn('orders') && !(opt && (opt.survey || opt.amc)) && !(current && (isSurvey(current) || current.amc_id)) && (has('tanks') || has('services'))) {
+      const tk = out.tanks !== undefined ? out.tanks : (current ? current.tanks : []);
+      const sv = out.services !== undefined ? out.services : (current ? current.services : []);
+      if ((tk || []).length) { const f = withTankServices(sv, tk); if (f.length !== splitList(sv).length) out.services = f; }
+    }
     if (has('price_locked')) { if (isNew) fail('BAD_INPUT', 'This field cannot be changed: price_locked'); delete out.price_locked; }
     if (has('days')) {
       const dd = text(input.days);
@@ -1010,11 +1037,13 @@ const MockAPI = (function () {
     'order.cancel': ['admin'], 'order.restore': ['admin'],
     'ledger.get': ['collector', 'admin'], 'ledger.build': ['admin'], 'payment.add': ['collector', 'admin'],
     'payment.list': ['admin'],
+    'payment.cancel': ['admin'],   // undo a wrong payment with a minus row (added 2026-10-08)
     'report.overtime': ['admin'], 'report.revenue': ['admin'],
     'alerts.list': ['admin'], 'alerts.seen': ['admin'],
     'client.list': ['admin'], 'client.history': ['admin'], 'client.lookup': ['admin'],
     'client.setNextVisit': ['admin'], 'reminders.list': ['admin'],
     'client.setWhatsapp': ['admin'], 'order.confirm': ['driver'],
+    'order.sizeIssue': ['driver'],   // the tanks at the site differ from the saved sizes (added 2026-10-08)
     'report.month': ['admin'],
     'logbook.get': ['admin'], 'logbook.setCosts': ['admin'],   // log book: costs are admin only
     // added 2026-10-08: tank pricing, survey + quotation, multi-day jobs, AMC
@@ -1126,7 +1155,11 @@ const MockAPI = (function () {
       clean.whatsapp = w ? w.whatsapp : '';
     }
     // Tank sizes not given: copy the client's last saved tanks, so the next visit is pre-filled
-    if (clean.tanks === undefined) clean.tanks = clientTanks(clean.phone).map(tankForSheet);
+    if (clean.tanks === undefined) {
+      clean.tanks = clientTanks(clean.phone).map(tankForSheet);
+      // the copied tanks bring their cleaning services (orders.gs orderCreate)
+      if (kind !== 'survey' && !amcId && modOn('orders') && clean.tanks.length) clean.services = withTankServices(clean.services, clean.tanks);
+    }
     if (kind === 'survey') {
       if (amcId) fail('BAD_INPUT', 'A survey cannot be an AMC visit.');
       clean.team = ''; clean.amount = 0; clean.days = 1;
@@ -1206,7 +1239,7 @@ const MockAPI = (function () {
     if (s.role === 'admin') {
       o.updated_by = s.name || '';
       addAlert('moved', 'ok', o.order_id, 'Office moved ' + o.client_name + ' from ' + m.oldDate + ' ' + fm(mins(m.oldTime)) +
-        ' to ' + m.date + ' ' + fm(mins(m.time)) + '. Reason: ' + reasonEn(m.reason) + '.' + (m.notify ? '' : ' Customer not messaged.'));
+        ' to ' + m.date + ' ' + fm(mins(m.time)) + '. Reason: ' + reasonEn(m.reason) + '.' + (m.notify ? '' : ' Customer not messaged.'), true);   // office's own action: seen
     } else {
       addAlert('moved', 'warn', o.order_id, (o.team ? 'Team ' + o.team : 'The team') + ' could not reach ' + o.client_name +
         ' on ' + m.oldDate + '. Reason: ' + reasonEn(m.reason) + '. Moved to ' + m.date + '.');
@@ -1316,20 +1349,12 @@ const MockAPI = (function () {
     // A task without a checklist (no services: possible when "orders" is off) needs no ticks
     if (!done.length && (o.services || []).length) fail('BAD_INPUT', 'Tick at least one service that was done.');
     done.forEach(k => { if (!o.services.includes(k)) fail('BAD_INPUT', 'This service was not ordered: ' + k); });
-    // Log book: tank sizes and crew (not given = keep; checked BEFORE anything is saved)
+    // Log book: crew (not given = keep; checked BEFORE anything is saved).
+    // Tanks from a driver are IGNORED (orders.gs, 2026-10-08): the saved sizes stay and the
+    // amount is never re-priced here. A different size at the site -> order.sizeIssue.
     const has = k => b[k] !== undefined && b[k] !== null;
-    const tanks = has('tanks') ? cleanTanks(b.tanks) : null;
     const crew = has('crew') ? cleanCrew(b.crew, o.team) : null;
-    if (tanks) o.tanks = tanks;
     if (crew) o.crew = crew;
-    // Price by tank size (when the job has tanks): the amount follows the measured tanks,
-    // unless the price is locked (approved quote, AMC, typed): then only a 'price_diff' alert.
-    // ("orders" add-on off: no pricing at all, the typed amount never changes)
-    if (modOn('orders') && (o.tanks || []).length && splitList(o.services).some(k => pricedBy(k) === 'tanks')) {
-      const pr = priceOrder(Object.assign({}, o, { price_locked: false }));
-      if (o.price_locked) priceDiffCheck(o, pr);
-      else o.amount = pr.total;
-    }
     o.status = 'done';
     o.done_at = nowIso();
     o.done_checklist = done;
@@ -1350,7 +1375,7 @@ const MockAPI = (function () {
     const m = Math.round(Number(b.mins));
     if (!(m > 0 && m <= 600)) fail('BAD_INPUT', 'Minutes late must be between 1 and 600.');
     const reason = String(b.reason || 'other');
-    if (!REASON[reason]) fail('BAD_INPUT', 'Unknown reason: ' + reason);
+    if (!LATE_REASONS.includes(reason)) fail('BAD_INPUT', 'Unknown reason: ' + reason);   // end-of-day reasons are not "late" reasons
     const o = ownOrder(b.order_id, s);
     if (!OPEN.includes(o.status)) fail('BAD_STATUS', 'Only a job not yet started can be delayed.');
     o.status = 'delayed'; o.delay_min = m; o.delay_reason = reason;
@@ -1409,6 +1434,20 @@ const MockAPI = (function () {
     return { order: filterForRole(o, s) };
   };
 
+  // order.sizeIssue {order_id, note} (driver, own team; added 2026-10-08, as orders.gs orderSizeIssue):
+  // drivers see the tanks read-only; "માપ અલગ છે" tells the office. Only a 'warn' alert size_issue,
+  // nothing else is saved. Any status except cancelled; note 1-300 characters.
+  A['order.sizeIssue'] = (b, s) => {
+    const note = String(b.note === undefined || b.note === null ? '' : b.note).replace(/\s+/g, ' ').trim();
+    if (!note) fail('BAD_INPUT', 'Say what is different about the tanks.');
+    if (note.length > 300) fail('BAD_INPUT', 'The note is too long (at most 300 characters).');
+    const o = ownOrder(b.order_id, s);   // own team only, never a cancelled job
+    if (s.role === 'driver' && o.kind === 'survey') fail('FORBIDDEN', 'This job belongs to another team.');
+    addAlert('size_issue', 'warn', o.order_id, (o.team ? 'Team ' + o.team : 'The team') + ' says the tank sizes at ' + o.client_name +
+      ' are different: ' + note + '. Check the sizes and the price.');
+    return { ok: true, alert_id: db.alerts[db.alerts.length - 1].alert_id };
+  };
+
   // order.reschedule {items:[{order_id, reason, new_date, new_time?, notify?}]} -> {moved}
   // Admin may also give new_time and the office reasons; notify:false = no WhatsApp.
   // All items are checked first: if one is wrong, nothing is moved (as orders.gs)
@@ -1445,7 +1484,7 @@ const MockAPI = (function () {
       o.status = CANCELLED; o.cancel_reason = reason; o.cancelled_at = nowIso();   // the team is kept for restore
       o.cancelled_by = s.name || '';
       addAlert('info', 'ok', o.order_id, 'Order #' + o.order_id + ' for ' + o.client_name + ' (' + o.sched_date + ' ' + fm(mins(o.sched_time)) +
-        ') was cancelled. Reason: ' + (reason || 'not given') + '. Customer not messaged.');
+        ') was cancelled. Reason: ' + (reason || 'not given') + '. Customer not messaged.', true);   // office's own action: seen
     }
     return { order: filterForRole(o, s) };
   };
@@ -1454,11 +1493,17 @@ const MockAPI = (function () {
     if (!isCancelled(o)) fail('BAD_STATUS', 'This order is not cancelled.');
     o.status = o.team ? 'assigned' : 'new'; o.cancel_reason = ''; o.cancelled_at = ''; o.reached_at = '';
     o.cancelled_by = ''; o.updated_by = s.name || '';
-    addAlert('info', 'ok', o.order_id, 'Order #' + o.order_id + ' for ' + o.client_name + ' was restored (' + o.sched_date + ' ' + fm(mins(o.sched_time)) + ').');
+    addAlert('info', 'ok', o.order_id, 'Order #' + o.order_id + ' for ' + o.client_name + ' was restored (' + o.sched_date + ' ' + fm(mins(o.sched_time)) + ').', true);   // office's own action: seen
     return { order: filterForRole(o, s) };
   };
 
   /* ---------- ledger and payments (ledger.gs) ---------- */
+  // A cancelled payment is never deleted: payment.cancel adds a MINUS row with
+  // ref "cancel-<payment id>" (as ledger.gs). All totals are plain sums of db.payments.
+  const CANCEL_REF = 'cancel-';
+  const isCancelRow = p => String(p.ref || '').indexOf(CANCEL_REF) === 0;
+  const cancelledSet = () => { const m = {}; db.payments.forEach(p => { if (isCancelRow(p)) m[String(p.ref).slice(CANCEL_REF.length)] = true; }); return m; };
+
   A['ledger.get'] = (b, s) => {
     let rows = db.ledger.map(r => {
       const o = db.orders.find(x => x.order_id === r.order_id);
@@ -1472,23 +1517,35 @@ const MockAPI = (function () {
       };
     });
     if (b.area) rows = rows.filter(r => (r.area || 'other') === String(b.area));
-    if (s.role !== 'admin') rows = rows.filter(r => r.balance > 0).map(r => pick(r, COLLECTOR_FIELDS));
-    const t = today();
-    const today_payments = db.payments.filter(p => p.date.slice(0, 10) === t).map(p => {
+    // The collector also gets the job date (one line per client, the jobs inside the chat)
+    if (s.role !== 'admin') rows = rows.filter(r => r.balance > 0).map(r => pick(r, COLLECTOR_FIELDS.concat(['sched_date'])));
+    const t = today(), cancelled = cancelledSet();
+    // Today's payments: a cancelled one stays (cancelled: true), the minus row is not listed
+    const today_payments = db.payments.filter(p => p.date.slice(0, 10) === t && !isCancelRow(p)).map(p => {
       const o = db.orders.find(x => x.order_id === p.order_id);
-      return { payment_id: p.payment_id, order_id: p.order_id, client_name: o ? o.client_name : '', amount: p.amount, mode: p.mode, time: p.date.slice(11, 16) };
+      return { payment_id: p.payment_id, order_id: p.order_id, client_name: o ? o.client_name : '', phone: o ? o.phone : '', amount: p.amount, mode: p.mode,
+        time: p.date.slice(11, 16), note: p.note || '', cancelled: !!cancelled[p.payment_id] };
     }).reverse();   // newest first
     return { rows, total: round2(rows.reduce((a, r) => a + Math.max(0, r.balance), 0)), today_payments };
   };
 
-  // Only done jobs, not yet in the ledger, that still have money to collect
-  A['ledger.build'] = () => {
+  // Only done jobs, not yet in the ledger, that still have money to collect.
+  // order_ids (optional): only the jobs the admin saw in the preview.
+  A['ledger.build'] = b => {
+    if (b.order_ids !== undefined && b.order_ids !== null && !Array.isArray(b.order_ids)) fail('BAD_INPUT', 'order_ids must be a list.');
+    const only = Array.isArray(b.order_ids) ? b.order_ids.map(Number) : null;
     const week = mondayOf(today());
-    const ready = db.orders.filter(o => o.status === 'done' && isJob(o) && !inLedger(o.order_id) && balanceOf(o) > 0);
+    const ready = db.orders.filter(o => o.status === 'done' && isJob(o) && !inLedger(o.order_id) && balanceOf(o) > 0 &&
+      (!only || only.includes(o.order_id)));
     ready.forEach(o => db.ledger.push(ledgerRowFor(o, week)));
     return { added: ready.length };
   };
 
+  // A client's unpaid ledger jobs, oldest first: [{o, bal}]
+  const clientJobs = phone => db.orders.filter(o => o.phone === phone && inLedger(o.order_id) && !isCancelled(o))
+    .sort(byDateTime).map(o => ({ o, bal: balanceOf(o) })).filter(j => j.bal > 0);
+
+  // payment.add: {order_id, ...} for one job, or {phone, ...} for one client (split over the oldest jobs first)
   A['payment.add'] = (b, s) => {
     const amt = round2(b.amount);
     if (!(amt > 0)) fail('BAD_INPUT', 'Amount must be more than 0.');
@@ -1497,6 +1554,43 @@ const MockAPI = (function () {
     const note = String(b.note === undefined || b.note === null ? '' : b.note).trim();
     // ref = the app's id for this payment attempt: a retry with the same ref is not saved twice
     const ref = String(b.ref === undefined || b.ref === null ? '' : b.ref).trim().slice(0, 100);
+    if (mode === 'cheque' && !note && s.role === 'collector') fail('BAD_INPUT', 'Write the cheque number and bank in the note.');
+    const who = s.role === 'admin' ? (s.name || 'Admin') : 'collector';   // an admin: their own name
+    const byPhone = (b.order_id === undefined || b.order_id === null || b.order_id === '') && b.phone;
+
+    if (byPhone) {
+      const phone = normPhone(b.phone) || fail('BAD_INPUT', 'Enter a 10 digit phone number.');
+      if (ref) {
+        const same = db.payments.find(p => p.ref === ref + '-1' || p.ref === ref);
+        if (same) {
+          const ids = db.payments.filter(p => p.ref === ref || (String(p.ref).indexOf(ref + '-') === 0 && /^\d+$/.test(String(p.ref).slice(ref.length + 1)))).map(p => p.payment_id);
+          return { payment_id: same.payment_id, payment_ids: ids, balance: round2(clientJobs(phone).reduce((a, j) => a + j.bal, 0)), duplicate: true };   // no 2nd WhatsApp
+        }
+      }
+      const jobs = clientJobs(phone);
+      if (!jobs.length) fail('NOT_FOUND', 'Nothing to collect from this client.');
+      const total = round2(jobs.reduce((a, j) => a + j.bal, 0));
+      if (amt > total) fail('BAD_INPUT', 'Amount is more than the balance (' + inr(total) + ').');
+      let rest = amt;
+      const parts = [], ids = [], when = nowIso();
+      for (const j of jobs) {
+        if (rest <= 0) break;
+        const take = round2(Math.min(rest, j.bal));
+        rest = round2(rest - take);
+        const p = { payment_id: 'P' + db.nextPaymentId++, order_id: j.o.order_id, date: when, amount: take, mode,
+          collector: who, note, ref: ref ? ref + '-' + (ids.length + 1) : '' };
+        db.payments.push(p);
+        ids.push(p.payment_id);
+        parts.push({ order_id: j.o.order_id, amount: take, balance: round2(j.bal - take) });
+      }
+      const left = round2(total - amt), first = jobs[0].o, last = jobs[parts.length - 1].o;
+      addAlert('info', 'ok', first.order_id, inr(amt) + ' collected from ' + first.client_name + ' by ' + MODES_EN[mode] +
+        (parts.length > 1 ? ' (' + parts.map(p => '#' + p.order_id + ' ' + inr(p.amount)).join(', ') + ')' : '') + '. ' +
+        (left > 0 ? 'Balance ' + inr(left) + '.' : 'Fully paid.'));
+      waSend(last, 'payment_thanks', { amount: amt, mode, balance: left });   // ONE thank-you with the client's new total
+      return { payment_id: ids[0], payment_ids: ids, balance: left, parts, whatsapp: clientWa(phone) };
+    }
+
     if (ref) {
       const same = db.payments.find(p => p.ref === ref);
       if (same) return { payment_id: same.payment_id, balance: balanceOf(getOrder(same.order_id)), duplicate: true }; // no 2nd WhatsApp
@@ -1506,12 +1600,33 @@ const MockAPI = (function () {
     const bal = balanceOf(o);
     if (amt > bal) fail('BAD_INPUT', 'Amount is more than the balance (' + inr(bal) + ').');
     const p = { payment_id: 'P' + db.nextPaymentId++, order_id: o.order_id, date: nowIso(), amount: amt, mode,
-      collector: s.role === 'admin' ? (s.name || 'Admin') : 'collector', note, ref };   // an admin: their own name
+      collector: who, note, ref };
     db.payments.push(p);
     const left = round2(bal - amt);
     addAlert('info', 'ok', o.order_id, inr(amt) + ' collected from ' + o.client_name + ' by ' + MODES_EN[mode] + '. ' + (left > 0 ? 'Balance ' + inr(left) + '.' : 'Fully paid.'));
     waSend(o, 'payment_thanks', { amount: amt, mode, balance: left });
     return { payment_id: p.payment_id, balance: left, whatsapp: clientWa(o.phone) };   // 'no' = thank-you skipped
+  };
+
+  // Admin only: cancel a wrong payment. Nothing is deleted: a minus row is added (as ledger.gs).
+  A['payment.cancel'] = (b, s) => {
+    const pid = String(b.payment_id === undefined || b.payment_id === null ? '' : b.payment_id).trim();
+    const reason = String(b.reason === undefined || b.reason === null ? '' : b.reason).trim().slice(0, 200);
+    if (!pid) fail('BAD_INPUT', 'Which payment? payment_id is missing.');
+    if (!reason) fail('BAD_INPUT', 'Write why the payment is cancelled.');
+    const p = db.payments.find(x => x.payment_id === pid) || fail('NOT_FOUND', 'Payment not found.');
+    if (isCancelRow(p) || !(p.amount > 0)) fail('BAD_INPUT', 'This row is itself a cancellation.');
+    const already = db.payments.find(x => x.ref === CANCEL_REF + pid);
+    if (already) return { payment_id: already.payment_id, cancelled: pid, balance: balanceOf(getOrder(p.order_id)), duplicate: true };
+    const o = db.orders.find(x => x.order_id === p.order_id) || fail('BAD_INPUT', 'This order is archived. Correct it in the Sheet.');
+    const who = s.name || 'Admin';
+    const minus = { payment_id: 'P' + db.nextPaymentId++, order_id: o.order_id, date: nowIso(), amount: -p.amount, mode: p.mode,
+      collector: who, note: 'Cancels ' + pid + ': ' + reason, ref: CANCEL_REF + pid };
+    db.payments.push(minus);
+    const bal = balanceOf(o);
+    addAlert('info', 'ok', o.order_id, 'Payment ' + inr(p.amount) + ' (' + o.client_name + ', ' + (MODES_EN[p.mode] || p.mode) + ', ' + p.date.slice(0, 10) +
+      ') cancelled by ' + who + ': ' + reason + '. Balance now ' + inr(bal) + '.');   // no customer WhatsApp
+    return { payment_id: minus.payment_id, cancelled: pid, balance: bal };
   };
 
   // Admin only: payments between two dates (default: the last 30 days), newest first
@@ -1520,11 +1635,13 @@ const MockAPI = (function () {
     const from = b.from ? String(b.from) : addD(t, -30);
     const to = b.to ? String(b.to) : t;
     if (!validDate(from) || !validDate(to)) fail('BAD_INPUT', 'Dates must look like 2026-10-07.');
+    const cancelled = cancelledSet();
     const payments = db.payments.filter(p => p.date.slice(0, 10) >= from && p.date.slice(0, 10) <= to)
       .map(p => {
         const o = allOrders().find(x => x.order_id === p.order_id);   // archived orders too (for the name)
         return { payment_id: p.payment_id, order_id: p.order_id, client_name: o ? o.client_name : '',
-          date: p.date, amount: p.amount, mode: p.mode, collector: p.collector, note: p.note || '' };
+          date: p.date, amount: p.amount, mode: p.mode, collector: p.collector, note: p.note || '',
+          cancelled: !!cancelled[p.payment_id], cancel_of: isCancelRow(p) ? String(p.ref).slice(CANCEL_REF.length) : '' };
       })
       .sort((x, y) => x.date < y.date ? 1 : x.date > y.date ? -1 : 0);
     return { payments };
@@ -1683,7 +1800,7 @@ const MockAPI = (function () {
     const modes = {};
     db.payments.filter(p => p.date.slice(0, 10) >= r[0] && p.date.slice(0, 10) <= r[1]).forEach(p => {
       const x = modes[p.mode] = modes[p.mode] || { mode: p.mode, count: 0, amount: 0 };
-      x.count++; x.amount = round2(x.amount + p.amount);
+      x.count += p.amount < 0 ? -1 : 1; x.amount = round2(x.amount + p.amount);   // a minus row (payment.cancel) takes a payment back out
     });
     const months = all.map(o => o.sched_date.slice(0, 7)).filter(Boolean).sort();
     const mc = monthCosts(m);   // log book costs (DayLog)
@@ -1779,10 +1896,19 @@ const MockAPI = (function () {
   // Newest first, at most 200
   A['alerts.list'] = b => {
     const L = db.alerts.slice().sort((x, y) => x.created_at === y.created_at ? (x.alert_id < y.alert_id ? 1 : -1) : (x.created_at < y.created_at ? 1 : -1));
-    const list = b.unseen_only ? L.filter(a => !a.seen) : L;
+    const list = b.unseen_only ? L.filter(a => !a.seen).slice(0, 200) : L.slice(0, 200).map(withAlertOrder);
     // Only real problems count (bad / warn), as orders.gs
-    return { alerts: list.slice(0, 200), unseen: db.alerts.filter(a => !a.seen && a.sev !== 'ok').length };
+    return { alerts: list, unseen: db.alerts.filter(a => !a.seen && a.sev !== 'ok').length };
   };
+
+  // The order's client on an alert (orders.gs withAlertOrder_, usability round 2026-10-08):
+  // the Dashboard offers Open order / Call customer / Reschedule on the alert itself
+  function withAlertOrder(a) {
+    const o = a.order_id === '' ? null : db.orders.find(x => x.order_id === Number(a.order_id));
+    if (!o) return a;
+    return Object.assign({}, a, { client_name: o.client_name, phone: o.phone, sched_date: o.sched_date, order_status: o.status,
+      whatsapp: o.whatsapp === 'no' ? 'no' : 'yes' });
+  }
 
   // No ids (or an empty list) = mark every alert as seen
   A['alerts.seen'] = b => {
@@ -1860,15 +1986,33 @@ const MockAPI = (function () {
         .sort((x, y) => x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : 0)
         .map(a => ({ created_at: a.created_at, type: a.type, sev: a.sev || 'warn', order_id: Number(a.order_id), text: a.text })),
       // AMC contracts of this client, newest first
-      contracts: !modOn('amc') ? [] : db.contracts.filter(c => c.phone === phone).slice().reverse().map(contractOut)
+      contracts: !modOn('amc') ? [] : db.contracts.filter(c => c.phone === phone).slice().reverse().map(contractOut),
+      last_bill: lastJob(phone, true)   // the latest finished job (Start AMC compares its amount), added 2026-10-08
     };
   };
 
   // Used by the New order form: a known phone fills in name, address, area and type. Unknown or bad phone -> null.
+  // Added 2026-10-08 (usability round), as clients.gs: last_job (its services and add-ons are
+  // copied onto a new order) and amc_next (the next AMC visit not booked yet, or null)
   A['client.lookup'] = b => {
     const phone = normPhone(b.phone);
-    return phone ? clientSummary(phone) : null;
+    const c = phone ? clientSummary(phone) : null;
+    if (!c) return null;
+    c.last_job = lastJob(phone, false);
+    if (modOn('amc')) c.amc_next = amcNext(phone);
+    return c;
   };
+  // The latest cleaning job {order_id, sched_date, services, amount, status} (no surveys, no cancelled), or null.
+  // doneOnly: the latest finished one (the last bill).
+  function lastJob(phone, doneOnly) {
+    const os = ordersOf(phone);
+    for (let i = os.length - 1; i >= 0; i--) {
+      const o = os[i];
+      if (!isJob(o) || isCancelled(o) || (doneOnly && o.status !== 'done')) continue;
+      return { order_id: o.order_id, sched_date: o.sched_date, services: (o.services || []).slice(), amount: Number(o.amount) || 0, status: o.status };
+    }
+    return null;
+  }
 
   // Set the next visit on the client's latest order ('' clears it)
   A['client.setNextVisit'] = b => {
@@ -1960,6 +2104,14 @@ const MockAPI = (function () {
   // them is priced by tanks) the cleaning services that match the tank positions (OH -> ot, UG -> ug).
   // Same for quote_amount, quote.approve and the admin price of a survey (orders.gs surveyServices_).
   function surveySvcs(o) { return withCleaning(splitList(o.services), o.tanks); }
+  // orders.gs withTankServices_: with a tank-priced service, add the cleaning service of each tank position
+  function withTankServices(svcs, tanks) {
+    svcs = splitList(svcs);
+    if (!svcs.some(k => pricedBy(k) === 'tanks')) return svcs;
+    const want = Array.from(new Set(tanksOut(tanks).map(t => t.type === 'UG' ? 'ug' : 'ot'))).sort().filter(k => svcRow(k) && svcRow(k).active);
+    const miss = want.filter(k => !svcs.includes(k));
+    return miss.length ? svcs.concat(miss) : svcs;
+  }
   function withCleaning(svcs, tanks) {
     if (svcs.some(k => pricedBy(k) === 'tanks')) return svcs;
     return Array.from(new Set(tanksOut(tanks).map(t => t.type === 'UG' ? 'ug' : 'ot'))).filter(k => svcRow(k)).concat(svcs);
@@ -1994,7 +2146,9 @@ const MockAPI = (function () {
     if (!tanks.length) fail('BAD_INPUT', 'Enter at least one tank.');
     const note = String(b.notes === undefined || b.notes === null ? '' : b.notes).trim().slice(0, 500);
     o.tanks = tanks;
-    if (note) o.notes = (o.notes ? o.notes + ' · ' : '') + 'Survey: ' + note;
+    // Same as survey.gs: a new line "Supervisor: ..." (or "Office: ..." from an admin). The supervisor's
+    // screen shows its own lines in its outgoing bubble (supervisor.js svMyNotes).
+    if (note) o.notes = (o.notes ? o.notes + String.fromCharCode(10) : '') + (s.role === 'admin' ? 'Office' : 'Supervisor') + ': ' + note;
     o.status = 'done';
     o.done_at = nowIso();
     o.quote_status = 'draft';
@@ -2049,7 +2203,7 @@ const MockAPI = (function () {
     sv.quote_order_id = o.order_id;
     sv.updated_by = s.name || '';
     addAlert('info', 'ok', o.order_id, 'Quotation approved for ' + o.client_name + ': cleaning order #' + o.order_id + ' on ' + o.sched_date + ' ' +
-      fm(mins(o.sched_time)) + ', ' + inr(o.amount) + ' (price locked).');
+      fm(mins(o.sched_time)) + ', ' + inr(o.amount) + ' (price locked).', true);   // office's own action: seen
     return { order: full(o), survey: full(sv) };
   };
 
@@ -2099,6 +2253,14 @@ const MockAPI = (function () {
     return Object.assign({}, c, { tanks: tanksOut(c.tanks), status: contractStatus(c), booked, done, next_due: nextDue,
       per_visit: Math.round(c.amount / c.visits), schedule: visitList });
   }
+  // The next visit of the client's active contract not booked yet (client.lookup amc_next), or null
+  function amcNext(phone) {
+    const c = db.contracts.filter(x => x.phone === phone && contractStatus(x) === 'active').pop();
+    if (!c) return null;
+    const v = contractOut(c).schedule.find(x => !x.order_id);
+    return v ? { amc_id: c.amc_id, visit_no: v.visit_no, visits: c.visits, due_date: v.due_date, days_left: daysBetween(today(), v.due_date),
+      visit_amount: v.amount, tanks: tanksOut(c.tanks) } : null;
+  }
   // The client's ACTIVE contract in short (client summary `amc`), or null
   function amcSummary(phone) {
     const c = db.contracts.filter(x => x.phone === phone && contractStatus(x) === 'active').pop();
@@ -2139,7 +2301,7 @@ const MockAPI = (function () {
       notes: String(b.notes === undefined || b.notes === null ? '' : b.notes).trim().slice(0, 500)
     };
     db.contracts.push(c);
-    addAlert('info', 'ok', '', 'AMC ' + c.amc_id + ' started for ' + c.client_name + ': ' + visits + ' visit' + (visits === 1 ? '' : 's') + ' a year, ' + inr(c.amount) + '.');
+    addAlert('info', 'ok', '', 'AMC ' + c.amc_id + ' started for ' + c.client_name + ': ' + visits + ' visit' + (visits === 1 ? '' : 's') + ' a year, ' + inr(c.amount) + '.', true);   // office's own action: seen
     return { contract: contractOut(c) };
   };
 
@@ -2159,7 +2321,7 @@ const MockAPI = (function () {
     if (st !== 'active') fail('BAD_STATUS', 'This contract is already ' + st + '.');
     c.status = 'cancelled';
     c.cancel_reason = String(b.reason === undefined || b.reason === null ? '' : b.reason).trim().slice(0, 200);
-    addAlert('info', 'ok', '', 'AMC ' + c.amc_id + ' for ' + c.client_name + ' was cancelled by ' + (s.name || 'the office') + '. Reason: ' + (c.cancel_reason || 'not given') + '.');
+    addAlert('info', 'ok', '', 'AMC ' + c.amc_id + ' for ' + c.client_name + ' was cancelled by ' + (s.name || 'the office') + '. Reason: ' + (c.cancel_reason || 'not given') + '.', true);   // office's own action: seen
     return { contract: contractOut(c) };
   };
 

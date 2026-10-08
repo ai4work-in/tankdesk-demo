@@ -321,9 +321,37 @@
       // Filled in from the client's past orders until the owner taps it herself.
       wa: prefill.whatsapp === 'no' ? 'no' : 'yes',
       waTouched: prefill.whatsapp === 'yes' || prefill.whatsapp === 'no',
+      // Usability round (2026-10-08):
+      svcTouched: Array.isArray(prefill.services),   // true once services are picked by hand (the last job's services are then not copied over them)
+      pastOk: '',                    // "date|time" the owner confirmed although that time has passed today (second click on Save)
+      amcNext: null,                 // the looked-up client's next AMC visit not booked yet ("Book as AMC visit 2/4")
       saving: false,
       rebuild: true
     };
+  }
+
+  /* ---------- services follow the tanks (usability round, 2026-10-08) ----------
+     The cleaning services priced by tank size go on and off with the tank positions:
+     an overhead tank (OH) -> 'ot', an underground tank (UG) -> 'ug'. Only tanks that have
+     a size typed count; with no sizes at all the services are left as they are.
+     svcs = the list of service keys to change (in place). Returns true if it changed. */
+  const POS_SVC = { OH: 'ot', UG: 'ug' };
+  function syncTankServices(svcs, key) {
+    if (!hasMod('orders') || !TankEd.has(key)) return false;
+    const filled = TankEd.list(key).filter(t => ['litres', 'l', 'w', 'h'].some(f => String(t[f] == null ? '' : t[f]).trim() !== ''));
+    if (!filled.length) return false;
+    // Only extras picked (e.g. leakage repair only): the tanks are just for the log book, leave it (same rule as the server)
+    if (svcs.length && !svcs.some(k => (svcOf(k) || {}).priced_by === 'tanks')) return false;
+    const pos = new Set(filled.map(t => t.type === 'UG' ? 'UG' : 'OH'));
+    let changed = false;
+    Object.keys(POS_SVC).forEach(p => {
+      const k = POS_SVC[p], s = svcOf(k);
+      if (!s || s.active === false || s.priced_by !== 'tanks') return;   // only cleaning services priced by tanks
+      const i = svcs.indexOf(k);
+      if (pos.has(p) && i < 0) { svcs.push(k); changed = true; }
+      if (!pos.has(p) && i >= 0) { svcs.splice(i, 1); changed = true; }
+    });
+    return changed;
   }
   const NEW_TK = 'ao:new';   // the tank editor on New order
 
@@ -345,7 +373,9 @@
     el.innerHTML =
       '<header><div><h2>' + word('New order') + '</h2><p class="sub">' + (priced
         ? 'Punch in a call or WhatsApp order. The map link, team suggestion and price fill in by themselves.'
-        : 'Add a task. The map link and team suggestion fill in by themselves.') + '</p></div></header>' +
+        : 'Add a task. The map link and team suggestion fill in by themselves.') + '</p></div>' +
+      // Clear form: start again with an empty form (usability round 2026-10-08)
+      '<button type="button" class="btn sm" data-act="ao-clear">Clear form</button></header>' +
       '<div id="ao-saved"></div>' +
       '<div class="newgrid">' +
       '<form id="ao-f" autocomplete="off" novalidate>' +
@@ -357,8 +387,9 @@
       '<div class="fld"' + (priced ? '' : ' hidden') + '><label for="ao-src">Order came from</label><select id="ao-src" data-chg="ao-src"><option value="call">Phone call</option><option value="whatsapp">WhatsApp</option></select></div>' +
       '<div class="fld"' + (priced ? '' : ' hidden') + '><label for="ao-type">Client type</label><select id="ao-type" data-chg="ao-type">' +
       clientTypes().map(c => '<option value="' + esc(c.key) + '">' + esc(c.name_en) + '</option>').join('') + '</select></div>' +
-      '<div class="fld"><label for="ao-name">' + (priced ? 'Client name' : 'Client or task name') + '</label><input id="ao-name" placeholder="e.g. Hiren Patel"></div>' +
+      // Phone first: a returning client's details fill in from it (usability round 2026-10-08)
       '<div class="fld"><label for="ao-phone">Phone number</label><input id="ao-phone" inputmode="numeric" data-inp="ao-phone" placeholder="98250 12345"></div>' +
+      '<div class="fld"><label for="ao-name">' + (priced ? 'Client name' : 'Client or task name') + '</label><input id="ao-name" placeholder="e.g. Hiren Patel"></div>' +
       '<div class="full" id="ao-ret" hidden></div>' +
       '<div class="fld full"><label for="ao-addr">Address</label><textarea id="ao-addr" rows="2" data-inp="ao-addr" placeholder="Flat or plot, society, landmark, area"></textarea></div>' +
       '<div class="fld"><label for="ao-area">Area (for team planning)</label><select id="ao-area" data-chg="ao-area"><option value="">Pick area</option>' +
@@ -371,15 +402,22 @@
       '<div class="fld ao-tkf" id="ao-tkf"><span class="lbl">Tanks <span class="sub">' + (priced ? '(the price comes from the tank sizes)' : '(optional, for the log book)') +
       '</span></span><div id="ao-tk"></div></div>' +
       '<div class="form-grid">' +
-      '<div class="fld"><label for="ao-date">Service date</label><input id="ao-date" type="date" data-inp="ao-date"></div>' +
+      // No date filled in by itself: Today / Tomorrow chips, or pick one (usability round 2026-10-08)
+      '<div class="fld"><label for="ao-date">Service date</label><div class="chips ao-dq" role="group" aria-label="Quick date">' +
+      '<button type="button" class="chip" data-act="ao-dq" data-n="0" aria-pressed="false">Today</button>' +
+      '<button type="button" class="chip" data-act="ao-dq" data-n="1" aria-pressed="false">Tomorrow</button></div>' +
+      '<input id="ao-date" type="date" data-inp="ao-date" aria-describedby="ao-date-n"><span class="sub" id="ao-date-n">or pick a date</span></div>' +
       '<div class="fld"><label for="ao-time">Time slot</label><select id="ao-time" data-chg="ao-time">' + slotOptions('11:00') + '</select></div>' +
       '<div class="fld" id="ao-days-f"' + (hasMod('multiday') ? '' : ' hidden') + '><label for="ao-days">How many days</label><select id="ao-days">' + dayOptions(1) + '</select></div>' +
       '<div class="fld" id="ao-amt-f"><label for="ao-amt">' + (priced ? 'Service charge (₹)' : 'Amount (₹, optional)') + '</label><input id="ao-amt" inputmode="numeric" data-inp="ao-amt" placeholder="0"></div>' +
       '<div class="full" id="ao-price" aria-live="polite"></div>' +
-      (hasMod('clients') ? '<div class="fld"><label for="ao-nv">Next visit (optional)</label><input id="ao-nv" type="date"></div>' : '') +
+      // The hint sits right under Next visit (usability round 2026-10-08)
+      (hasMod('clients') ? '<div class="fld"><label for="ao-nv">Next visit (optional)</label><input id="ao-nv" type="date" aria-describedby="ao-nv-n">' +
+        '<span class="sub ao-nvn" id="ao-nv-n">The client shows in "Visits due" on the Dashboard ' + days + ' days before this date.</span></div>' : '') +
       '<div class="fld full"><label for="ao-notes">Note for the team</label><input id="ao-notes" placeholder="e.g. call before arriving"></div>' +
-      (hasMod('clients') ? '<p class="sub full" style="margin-top:-6px">Next visit: the client shows in "Visits due" on the Dashboard ' + days + ' days before this date.</p>' : '') +
       '</div>' +
+      // Phone only: the team suggestion right above Save (on a computer it is in the side panel)
+      '<div class="ao-sgm" id="ao-sgm" aria-live="polite"></div>' +
       '<p class="err" id="ao-err" role="alert" hidden></p>' +
       '<button type="submit" class="btn pri" id="ao-submit">' + word('Save order') + '</button>' +
       '</form>' +
@@ -387,7 +425,9 @@
       '</div>';
 
     // Pre-filled values (from "Book order" on a reminder, or a client page)
-    $('#ao-date').value = p.sched_date || (f.amc && f.amc.due_date >= todayIso() ? f.amc.due_date : todayIso());
+    // No silent default date: only a date that came with the prefill (or the AMC visit's due date)
+    $('#ao-date').value = p.sched_date || (f.amc && f.amc.due_date >= todayIso() ? f.amc.due_date : '');
+    paintDateChips();
     if (p.phone) $('#ao-phone').value = phoneText(p.phone);
     if (p.client_name) $('#ao-name').value = p.client_name;
     if (p.address) $('#ao-addr').value = p.address;
@@ -462,7 +502,13 @@
      The charge follows the price until the owner types her own amount (then it is locked). */
   let priceTimer = null;
   function priceSoon() { if (!hasMod('orders')) return; clearTimeout(priceTimer); priceTimer = setTimeout(paintPrice, 350); }   // no prices without the orders add-on
-  function tanksChanged() { if (AO.form && !AO.form.tkSilent) AO.form.tkTouched = true; priceSoon(); }
+  function tanksChanged() {
+    if (!AO.form) return;
+    if (!AO.form.tkSilent) AO.form.tkTouched = true;
+    // services follow the tanks: an overhead tank switches on 'ot', an underground one 'ug'
+    if (AO.form.kind === 'cleaning' && !AO.form.amc && syncTankServices(AO.form.svcs, NEW_TK)) paintChips();
+    priceSoon();
+  }
   async function paintPrice() {
     const f = AO.form, box = $('#ao-price');
     if (!box || !f || f.kind !== 'cleaning' || f.amc) return;
@@ -493,8 +539,10 @@
   async function paintSide() {
     const side = $('#ao-side');
     if (!side) return;
-    const addr = $('#ao-addr').value.trim(), area = $('#ao-area').value, date = $('#ao-date').value || todayIso();
+    const addr = $('#ao-addr').value.trim(), area = $('#ao-area').value, date = $('#ao-date').value;   // '' = no date picked yet
     const my = ++AO.seq.side;
+    const sgm = $('#ao-sgm');   // the phone's copy of the suggestion, right above Save
+    if (sgm) sgm.innerHTML = '';
 
     let h = '<h3>Location</h3>';
     if (addr) {
@@ -512,15 +560,22 @@
     }
     const memoKey = area + '|' + date;
     h += '<h3 style="margin-top:14px">Team suggestion</h3><div id="ao-sg">' +
-      (area ? (sideMemo[memoKey] ? sgHtml(sideMemo[memoKey], area, date) : '<p class="sub">Finding the best team…</p>')
-        : '<p class="sub">Pick or detect the area to see which team is already nearby.</p>') + '</div>';
+      (!area ? '<p class="sub">Pick or detect the area to see which team is already nearby.</p>'
+        : !date ? '<p class="sub">Pick the service date to see which team is nearby that day.</p>'
+        : sideMemo[memoKey] ? sgHtml(sideMemo[memoKey], area, date) : '<p class="sub">Finding the best team…</p>') + '</div>';
 
-    if (outside($('#ao-time').value)) {
+    const tm = $('#ao-time').value;
+    if (outside(tm)) {
       h += '<div class="box warn" style="margin-top:12px">This slot is outside office hours (' + fm(officeStart()) + ' to ' + fm(officeEnd()) +
         '). Work in this slot is tracked as overtime.</div>';
     }
+    // A slot that has already passed today (usability round 2026-10-08)
+    if (date === todayIso() && mins(tm) != null && mins(tm) < nowMin()) {
+      h += '<div class="box warn" style="margin-top:12px">This time has already passed today (' + fm(mins(tm)) + ').</div>';
+    }
     side.innerHTML = h;
-    if (!area || sideMemo[memoKey]) return;
+    if (sgm && area && date && sideMemo[memoKey]) sgm.innerHTML = sgHtml(sideMemo[memoKey], area, date);
+    if (!area || !date || sideMemo[memoKey]) return;
 
     // Ask the server in ONE trip: which team, and how many jobs are already in this area that day
     try {
@@ -533,6 +588,7 @@
       sideMemo[memoKey] = ans;
       if (my !== AO.seq.side || !$('#ao-sg')) return;
       $('#ao-sg').innerHTML = sgHtml(ans, area, date);
+      if ($('#ao-sgm')) $('#ao-sgm').innerHTML = sgHtml(ans, area, date);
     } catch (e) {
       if (my !== AO.seq.side || !$('#ao-sg')) return;
       if (e.message === 'AUTH') return;
@@ -580,11 +636,25 @@
         AO.form.wa = c.whatsapp;
         paintWa();
       }
+      // Services: the same as the client's last job, add-ons included (unless picked by hand already)
+      const lj = c.last_job;
+      if (lj && (lj.services || []).length && !AO.form.svcTouched && !AO.form.amc && AO.form.kind === 'cleaning') {
+        const ks = lj.services.filter(k => services().some(s => s.key === k));
+        if (ks.length) {
+          if (ks.slice().sort().join() !== AO.form.svcs.slice().sort().join()) filled.push('services');
+          AO.form.svcs = ks; paintChips(); priceSoon();
+        }
+      }
       // Pricing: the saved tank sizes go into the tank editor (unless changed by hand already)
-      if ((c.tanks || []).length && !AO.form.tkTouched && !AO.form.amc) {
-        AO.form.tkSilent = true; TankEd.load(NEW_TK, c.tanks); AO.form.tkSilent = false;
+      // (tanks filled in from an EARLIER looked-up number are taken out again when this client has none)
+      if (!AO.form.tkTouched && !AO.form.amc && ((c.tanks || []).length || AO.form.tkFrom)) {
+        AO.form.tkSilent = true; TankEd.load(NEW_TK, c.tanks || []); AO.form.tkSilent = false;
+        AO.form.tkFrom = (c.tanks || []).length ? phone : '';
         priceSoon();
       }
+      if (AO.form.kind === 'cleaning' && !AO.form.amc && syncTankServices(AO.form.svcs, NEW_TK)) { paintChips(); priceSoon(); }   // services follow the tanks
+      // An AMC visit not booked yet: offer to book this order as that visit (prefilled like "Visits due")
+      AO.form.amcNext = hasMod('amc') && c.amc_next && !AO.form.amc ? c.amc_next : null;
       const n = Number(c.orders) || 0;
       const svc = (c.last_services || []).map(svcName).join(', ');
       // Shown like a small chat: the client's initials and one bubble about the last service
@@ -596,6 +666,9 @@
             ' <span class="sub">(filled in below)</span></div>' : '') +
           (c.amc ? '<div class="ao-tanks"><span class="pill ok">AMC ' + esc(c.amc.amc_id) + '</span> ' + esc(c.amc.done) + ' of ' + esc(c.amc.visits) + ' visits done' +
             (c.amc.next_due ? ' · next due ' + esc(lab(c.amc.next_due)) : '') + '</div>' : '') +
+          (AO.form.amcNext ? '<div class="ao-amcnext"><button type="button" class="btn sm pri" data-act="ao-amc-book">Book as AMC visit ' +
+            esc(AO.form.amcNext.visit_no) + '/' + esc(AO.form.amcNext.visits) + '</button> <span class="sub">due ' + esc(lab(AO.form.amcNext.due_date)) +
+            ' · ' + inr(AO.form.amcNext.visit_amount) + ' from the contract</span></div>' : '') +
           (filled.length ? '<div class="sub">Filled in ' + esc(filled.join(', ')) + ' from the last order.</div>' : '') +
           '<button type="button" class="lnk" data-act="open-client" data-phone="' + esc(phone) + '">Open client</button>',
           c.last_date ? shortDate(c.last_date) : '', { who: c.client_name || '' }) + '</div>';
@@ -608,13 +681,39 @@
     }
   }
 
+  // "Book as AMC visit 2/4": the form switches to that AMC visit (tanks and price from the
+  // contract, like "Book order" in Visits due). What was typed (name, address...) stays.
+  onAct('ao-amc-book', () => {
+    const f = AO.form, n = f && f.amcNext;
+    if (!n) return;
+    const v = id => ($(id) ? $(id).value || '' : '').trim();
+    App.openNewOrder({
+      phone: normPhone(v('#ao-phone')), client_name: v('#ao-name'), address: v('#ao-addr'), area: v('#ao-area'),
+      client_type: hasMod('orders') ? v('#ao-type') : '', whatsapp: f.waTouched ? f.wa : undefined,
+      amc: { amc_id: n.amc_id, visit_no: n.visit_no, visits: n.visits, visit_amount: n.visit_amount, tanks: n.tanks || [], due_date: n.due_date }
+    });
+  });
+
   /* ---------- form typing and picking ---------- */
   onInp('ao-phone', el => lookup(el.value));
   onInp('ao-addr', el => {
     if (!AO.form.manualArea) $('#ao-area').value = guessArea(el.value);
     refreshSide();
   });
-  onInp('ao-date', () => refreshSide());
+  onInp('ao-date', () => { paintDateChips(); refreshSide(); });
+  // Today / Tomorrow chips above the date box (usability round 2026-10-08)
+  function paintDateChips() {
+    const d = $('#ao-date') ? $('#ao-date').value : '';
+    $$('#ad-new [data-act="ao-dq"]').forEach(b => b.setAttribute('aria-pressed', String(!!d && d === addD(todayIso(), Number(b.dataset.n)))));
+  }
+  onAct('ao-dq', el => { $('#ao-date').value = addD(todayIso(), Number(el.dataset.n)); paintDateChips(); paintSide(); });
+  // Clear form: an empty form, as after a save (what was typed is gone)
+  onAct('ao-clear', () => {
+    AO.form = freshForm();
+    AO.saved = null;
+    const el = $('#ad-new');
+    if (isOpen('new')) { buildForm(el); paintSaved(); window.scrollTo(0, 0); $('#ao-phone').focus(); }
+  });
   // A typed charge is used as it is (and locked); clearing it goes back to the worked-out price
   onInp('ao-amt', el => { AO.form.manualAmt = !!el.value.trim(); priceSoon(); });
   onChg('ao-area', el => { AO.form.manualArea = !!el.value; refreshSide(); });
@@ -623,6 +722,7 @@
   onAct('ao-svc', el => {
     const s = AO.form.svcs, i = s.indexOf(el.dataset.k);
     if (i >= 0) s.splice(i, 1); else s.push(el.dataset.k);
+    AO.form.svcTouched = true;
     paintChips(); priceSoon();
   });
 
@@ -633,7 +733,8 @@
     if (f.saving) return;
     const name = $('#ao-name').value.trim(), phone = normPhone($('#ao-phone').value), addr = $('#ao-addr').value.trim();
     const amt = Number(String($('#ao-amt').value).replace(/[^\d.]/g, ''));
-    const date = $('#ao-date').value || todayIso(), nv = $('#ao-nv') ? $('#ao-nv').value : '';   // no next visit without Clients
+    const date = $('#ao-date').value, nv = $('#ao-nv') ? $('#ao-nv').value : '';   // no next visit without Clients
+    const time = $('#ao-time').value;
     const priced = hasMod('orders');
     const err = $('#ao-err');
     const sv = f.kind === 'survey', amc = f.amc;
@@ -646,15 +747,26 @@
       : (!f.svcs.length && !sv && priced) ? 'Pick at least one service.'
       : tk.error ? tk.error
       : (!sv && !amc && priced && f.manualAmt && !(amt > 0)) ? 'Enter the service charge, or clear it to use the price from the tanks.'
+      : !date ? 'Pick the service date: tap Today or Tomorrow, or choose a date.'   // no silent default date
       : (nv && nv <= date) ? 'Next visit must be after the service date.'
       : '';
-    if (bad) { err.textContent = bad; err.hidden = false; return; }
+    if (bad) { err.textContent = bad; err.hidden = false; if (!date && $('#ao-date')) $('#ao-date').focus(); return; }
+    // A time that has already passed today: warn once; a second click on Save books it anyway
+    // (a date before today too: e.g. a job typed in afterwards)
+    const past = date < todayIso() || (date === todayIso() && mins(time) != null && mins(time) < nowMin());
+    if (past && f.pastOk !== date + '|' + time) {
+      f.pastOk = date + '|' + time;
+      err.textContent = (date < todayIso() ? 'This date is in the past (' + lab(date) + ').' : 'This time has already passed today (' + fm(mins(time)) + ').') +
+        ' Pick a later ' + (date < todayIso() ? 'date' : 'time slot') + ', or press ' + (sv ? 'Save survey visit' : word('Save order')) + ' again to book it anyway.';
+      err.hidden = false;
+      return;
+    }
     err.hidden = true;
 
     const order = {
       client_name: name, phone: phone,
       address: addr, area: $('#ao-area').value, services: f.svcs.slice(),
-      sched_date: date, sched_time: $('#ao-time').value, notes: $('#ao-notes').value.trim(),
+      sched_date: date, sched_time: time, notes: $('#ao-notes').value.trim(),
       whatsapp: waPicked()   // 'yes' or 'no' (an order from WhatsApp is always 'yes')
     };
     // Fields of add-ons are sent only when that add-on is on (the server ignores or refuses them otherwise)
@@ -771,6 +883,9 @@
   async function loadOrders() {
     const my = ++AO.seq.orders;
     AO.ordLoading = true; AO.ordErr = false;
+    // the all-dates copy used by the search is out of date too: load it again only while searching
+    AO.all = null;
+    if (searching() && AO.ord.when !== 'all') loadAllForSearch();
     paintOrders();
     try {
       await apiCached('order.list', ordParams(), r => {
@@ -805,10 +920,36 @@
     });
   }
 
+  /* ---------- search by name or phone (usability round, 2026-10-08) ----------
+     Instant, in the browser. While text is typed, the search also looks at other days:
+     every order is loaded once (one order.list without dates) and searched too. */
+  const searching = () => !!String(AO.ord.q || '').trim();
+  const searchAll = () => searching() && AO.ord.when !== 'all' && !!AO.all;   // searching beyond the chosen days
+  function searchHit(o, q) {
+    const t = String(q || '').trim().toLowerCase(), d = t.replace(/\D/g, '');
+    if (!t) return true;
+    return String(o.client_name || '').toLowerCase().includes(t) || (d.length >= 3 && String(o.phone || '').includes(d)) ||
+      String(o.order_id) === t.replace(/^#/, '');
+  }
+  async function loadAllForSearch() {
+    if (AO.allLoading) return;
+    AO.allLoading = true;
+    try {
+      await apiCached('order.list', { include_cancelled: true }, r => { AO.all = r.orders || []; if (searching() && isOpen('orders')) paintOrders(); });
+    } catch (e) { fail(e); }
+    AO.allLoading = false;
+  }
+  onInp('ao-q', el => {
+    AO.ord.q = el.value;
+    if (searching() && AO.ord.when !== 'all' && !AO.all) loadAllForSearch();
+    paintOrders();
+  });
+
   // The loaded list with the filters applied (same rules as the mockup)
   function ordList() {
     const f = AO.ord;
-    let L = (AO.orders || []).slice();
+    let L = (searchAll() ? AO.all : AO.orders || []).slice();
+    if (searching()) L = L.filter(o => searchHit(o, f.q));
     if (f.un) L = L.filter(o => o.status === 'new' && !isSurvey(o));
     if (f.type) L = L.filter(o => o.client_type === f.type);
     if (f.area) L = L.filter(o => (o.area || 'other') === f.area);
@@ -817,6 +958,10 @@
     if (f.team) L = L.filter(o => f.team === 'none' ? !o.team : o.team === f.team);
     return L.sort(byDateTime);
   }
+
+  // A phone number as a tap-to-call link: "98250 41031" -> tel:+919825041031
+  const telLink = p => { const d = dialNo(p); return d ? '<a class="ao-tel" href="tel:+' + d + '" aria-label="Call ' + esc(phoneText(p)) + '">' + esc(phoneText(p)) + '</a>' : esc(phoneText(p)); };
+  App.telLink = telLink;   // also used by the Dashboard alerts (admin-insights.js)
 
   // "Team A · Ramesh" (first word of the driver name, so it stays short)
   const teamShort = k => { const t = teamRow(k); return 'Team ' + k + (t && t.driver_name ? ' · ' + String(t.driver_name).split(' ')[0] : ''); };
@@ -869,10 +1014,11 @@
 
   // One table row. On a phone the same row shows as a small card (see admin.css).
   function orderRow(o) {
-    const oneDay = AO.ord.when === 'today' || AO.ord.when === 'tomorrow';   // one day: the time is enough
+    const oneDay = (AO.ord.when === 'today' || AO.ord.when === 'tomorrow') && !searchAll();   // one day: the time is enough
     const cls = [AO.hi === o.order_id ? 'hi' : '', o.status === 'cancelled' ? 'ao-cx' : ''].join(' ').trim();
     return '<tr class="' + cls + '" id="ao-row-' + o.order_id + '">' +
-      '<td class="c-cl">' + withAvatar(o, clientLink(o) + '<div class="sub">#' + o.order_id + ' · ' + esc(phoneText(o.phone)) + '</div>' +
+      // the phone number is a tap-to-call link (usability round 2026-10-08)
+      '<td class="c-cl">' + withAvatar(o, clientLink(o) + '<div class="sub">#' + o.order_id + ' · ' + telLink(o.phone) + '</div>' +
         (noWa(o) && App.noWaPill ? App.noWaPill() : '')) + '</td>' +
       '<td class="c-area"><span class="ao-ar">' + esc(areaName(o.area)) +
       '<a class="ao-mapic" href="' + esc(mapUrl(o)) + '" target="_blank" rel="noopener" title="Open in Google Maps" aria-label="Open ' + esc(o.client_name) + ' in Google Maps">' + WA.icons.map + '</a></span>' +
@@ -917,15 +1063,24 @@
     // How many dropdown filters are in use (shown on the phone's "Filters" button)
     const nf = [f.area, f.svc, f.team, f.type, f.group].filter(Boolean).length;
 
+    // Keep the cursor in the search box while the list redraws under it
+    const qEl = document.activeElement && document.activeElement.id === 'ao-q' ? document.activeElement : null;
+    const qPos = qEl ? qEl.selectionStart : 0;
+
     let tbody;
-    if (AO.orders === null) {
+    if (AO.orders === null && !searchAll()) {
       tbody = '<tr><td colspan="8"><div class="empty">' + (AO.ordErr
         ? word('Could not load the orders.') + ' <button class="lnk" data-act="ao-reload">Try again</button>' : word('Loading orders…')) + '</div></td></tr>';
-    } else tbody = L.length ? body : '<tr><td colspan="8"><div class="empty">' + word('No orders for these filters.') + '</div></td></tr>';
+    } else tbody = L.length ? body : '<tr><td colspan="8"><div class="empty">' + (searching() ? 'No order matches "' + esc(f.q) + '".' : word('No orders for these filters.')) + '</div></td></tr>';
 
     el.innerHTML =
       '<header><div><h2>' + word('Orders and assign') + '</h2><p class="sub">Filter by area, task or team. Teams are suggested by area, so nearby jobs go to the same team.</p></div>' +
-      '<button class="btn pri" data-act="ao-smart"' + (unN && !AO.ordLoading ? '' : ' disabled') + '>Smart assign ' + unN + ' by area</button></header>' +
+      '<button class="btn pri" data-act="ao-smart"' + (unN && !AO.ordLoading && !searchAll() ? '' : ' disabled') + '>Smart assign ' + unN + ' by area</button></header>' +
+      // Search by name or phone (usability round 2026-10-08)
+      '<div class="ao-search"><label class="ins-sbox">' + WA.icons.search +
+      '<input type="search" id="ao-q" data-inp="ao-q" placeholder="Search name or phone" aria-label="Search orders by client name or phone" value="' + esc(f.q || '') + '"></label>' +
+      (searching() ? '<span class="sub">' + (AO.ord.when === 'all' ? 'Searching all dates.' : searchAll() ? 'Searching all dates, not only the chosen days.'
+        : 'Searching the chosen days… other dates are loading.') + '</span>' : '') + '</div>' +
       '<div class="chips" style="margin-bottom:8px">' +
       [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'Next 7 days'], ['all', 'All']].map(w =>
         '<button class="chip" aria-pressed="' + (f.when === w[0]) + '" data-act="ao-when" data-w="' + w[0] + '">' + w[1] + '</button>').join('') +
@@ -946,7 +1101,43 @@
       (AO.ordLoading && AO.orders !== null ? ' ' + updNote() : '') + '</p>' +
       '<div class="tw"><table class="tbl ao-tbl"><thead><tr><th>Client</th><th>Area</th><th>Task</th><th>When</th><th class="num">Charge</th><th>Team</th><th>Status</th><th class="c-act"><span class="ao-vh">Actions</span></th></tr></thead><tbody>' +
       tbody + '</tbody></table></div>';
+    if (qEl) { const q = $('#ao-q'); if (q) { q.focus(); try { q.setSelectionRange(qPos, qPos); } catch (e) { /* not a text box */ } } }
+    // Opened from an alert ("Open order"): bring the highlighted row into view once
+    if (AO.hiScroll && AO.hi && $('#ao-row-' + AO.hi)) { AO.hiScroll = false; $('#ao-row-' + AO.hi).scrollIntoView({ block: 'center' }); }
   }
+
+  /* Other screens (Dashboard alerts) open an order (usability round 2026-10-08):
+     App.openOrder(id, date)               Orders and assign on that day, the order highlighted
+     App.orderAction('edit'|'move', id, date)  the Edit panel or the Reschedule dialog of that order
+     The order is loaded with one order.list for its date (cancelled ones too). */
+  App.openOrder = function (id, date) {
+    const t = todayIso();
+    AO.ord = { when: !date || date === t ? 'today' : date === addD(t, 1) ? 'tomorrow' : 'all', un: false, type: '', area: '', svc: '', team: '', group: '', q: '' };
+    AO.hi = Number(id); AO.hiScroll = true;
+    AO.orders = null;
+    App.adminTab = 'orders';
+    renderAdmin();
+    window.scrollTo(0, 0);
+  };
+  App.orderAction = async function (act, id, date, btn) {
+    id = Number(id);
+    let o = known[id];
+    if (!o) {
+      try {
+        const r = await api('order.list', date ? { from: date, to: date, include_cancelled: true } : { include_cancelled: true });
+        o = (r.orders || []).find(x => x.order_id === id);
+      } catch (e) { fail(e); return; }
+    }
+    if (!o) { toast(word('That order was not found. The list has been refreshed.')); return; }
+    known[id] = o;
+    // the same code as the "⋯" menu items: a fake menu button with the order id
+    const fake = { dataset: { id: String(id) } };
+    lastFocus = btn || null;
+    if (act === 'move') {
+      if (o.status === 'done' || o.status === 'cancelled' || o.status === 'ongoing' || workDays(o).length) { App.actions['ao-o-edit'](fake); return; }
+      App.actions['ao-o-move'](fake);
+    } else App.actions['ao-o-edit'](fake);
+  };
 
   // Assign one order to a team ('' = take the team off)
   async function assign(id, team) {
@@ -968,16 +1159,51 @@
     el.disabled = true; assign(id, el.value);
   });
   onAct('ao-apply', el => { el.disabled = true; assign(Number(el.dataset.id), el.dataset.t); });
-  onAct('ao-smart', async btn => {
-    const ids = ordList().filter(o => o.status === 'new' && !isSurvey(o)).map(o => o.order_id);
-    if (!ids.length) return;
-    btn.disabled = true; btn.textContent = 'Assigning…';
+  /* Smart assign (usability round 2026-10-08): first a preview, job -> team, with Confirm.
+     The plan is worked out here, one job after the other (in time order), as if the jobs
+     before it were already given their team, so jobs in the same area go to the same team.
+     Each team can still be changed in the preview. Confirm sends all of them in ONE trip. */
+  let smartPlan = [];
+  onAct('ao-smart', btn => {
+    const todo = ordList().filter(o => o.status === 'new' && !isSurvey(o)).sort(byDateTime);
+    if (!todo.length) return;
+    const work = (AO.orders || []).map(o => Object.assign({}, o));   // a copy: the plan is not saved yet
+    smartPlan = todo.map(o => {
+      const sg = suggestLocal(o, work);
+      const w = work.find(x => x.order_id === o.order_id);
+      if (sg && sg.team && w) { w.team = sg.team; w.status = 'assigned'; }
+      return { o: o, team: sg ? sg.team : '', why: sg ? sg.why : 'No team to suggest' };
+    });
+    lastFocus = btn;
+    const body = '<p class="sub">Each job gets the team already in its area that day, or the nearest, or the lightest. Change a team here if needed, then Confirm.</p>' +
+      '<div class="ao-plan">' + smartPlan.map((p, i) => '<div class="ao-planr"><div class="ao-plan1"><b>' + esc(p.o.client_name) + '</b><div class="sub">' +
+        (AO.ord.when === 'today' || AO.ord.when === 'tomorrow' ? '' : esc(lab(p.o.sched_date)) + ' · ') + fm(mins(p.o.sched_time)) + ' · ' + esc(areaName(p.o.area)) + '</div></div>' +
+        '<span class="ao-arrow" aria-hidden="true">→</span>' +
+        '<div class="ao-plan2"><select class="fsel" data-chg="ao-plan" data-i="' + i + '" aria-label="Team for ' + esc(p.o.client_name) + '">' +
+        '<option value="">No team</option>' + activeTeams().map(t => '<option value="' + esc(t.team) + '"' + (t.team === p.team ? ' selected' : '') + '>' + esc(teamShort(t.team)) + '</option>').join('') +
+        '</select><div class="sub">' + esc(p.why) + '</div></div></div>').join('') + '</div>' +
+      '<p class="err" id="ao-merr" role="alert" hidden></p>';
+    openModal('dlg', 'Smart assign: check the plan', body,
+      '<button type="button" class="btn" data-act="ao-mclose">Cancel</button>' +
+      '<button type="button" class="btn pri" data-act="ao-smart-go">Confirm ' + smartPlan.length + ' job' + (smartPlan.length === 1 ? '' : 's') + '</button>');
+  });
+  onChg('ao-plan', el => { const p = smartPlan[Number(el.dataset.i)]; if (p) { p.team = el.value; p.why = el.value ? 'Picked by you' : 'Stays without a team'; } });
+  onAct('ao-smart-go', async btn => {
+    const go = smartPlan.filter(p => p.team);
+    if (!go.length) { modalErr('No team picked for any job.'); return; }
+    busy(btn, 'Assigning…'); modalErr('');
     try {
-      const r = await api('order.assign', { smart: true, order_ids: ids });
+      // at most 10 calls go in one trip (BATCH_MAX on the server), so a long plan takes a few trips
+      let res = [];
+      for (let i = 0; i < go.length; i += 10) {
+        res = res.concat(await batchCalls(go.slice(i, i + 10).map(p => ['order.assign', { order_id: p.o.order_id, team: p.team }])));
+      }
+      const bad = res.filter(x => x instanceof Error);
       dropSaved();
-      const n = (r.assigned || []).length;
-      toast(n + ' order' + (n === 1 ? '' : 's') + ' assigned by area.');
-    } catch (e) { fail(e); }
+      const n = go.length - bad.length;
+      toast(n + ' order' + (n === 1 ? '' : 's') + ' assigned.' + (bad.length ? ' ' + bad.length + ' could not be assigned: ' + errText(bad[0]) : ''));
+      closeModal();
+    } catch (e) { unbusy(btn); if (e.message !== 'AUTH') modalErr(errText(e)); return; }
     loadOrders();
   });
   // "When" chips change the date range, so the list is loaded again
@@ -1186,7 +1412,7 @@
       '</div>' +
       '<div class="fld" style="margin-bottom:12px"' + (services().length || priced || (o.services || []).length ? '' : ' hidden') + '><span class="lbl">' +
       (sv ? 'Services the client wants' : priced ? 'Service' : 'Checklist (optional)') + '</span><div class="chips" id="ao-e-svcs"></div></div>' +
-      (sv ? '' : '<div class="fld ao-tkf"><span class="lbl">Tanks' + (priced ? '' : ' <span class="sub">(optional, for the log book)</span>') + '</span>' + TankEd.html(EDK(o), o.tanks || [], { lang: 'en', onChange: ePriceSoon, hint: true }) + '</div>') +
+      (sv ? '' : '<div class="fld ao-tkf"><span class="lbl">Tanks' + (priced ? '' : ' <span class="sub">(optional, for the log book)</span>') + '</span>' + TankEd.html(EDK(o), o.tanks || [], { lang: 'en', onChange: eTanksChanged, hint: true }) + '</div>') +
       '<div class="form-grid">' +
       '<div class="fld"><label for="ao-e-date">Service date</label><input id="ao-e-date" type="date" data-inp="ao-e-when" value="' + esc(o.sched_date) + '"></div>' +
       '<div class="fld"><label for="ao-e-time">Time slot</label><select id="ao-e-time" data-chg="ao-e-when">' + slotsWith(o.sched_time) + '</select></div>' +
@@ -1214,6 +1440,12 @@
 
   /* Live price in the Edit panel (price.quote with the tanks and services on screen) */
   let ePriceTimer = null;
+  // Tanks changed in the Edit panel: the cleaning services follow the tank positions, then the price
+  function eTanksChanged() {
+    const o = ED.o;
+    if (o && !isSurvey(o) && !o.amc_id && syncTankServices(ED.svcs, EDK(o))) paintEditChips();
+    ePriceSoon();
+  }
   function ePriceSoon() { if (!hasMod('orders')) return; clearTimeout(ePriceTimer); ePriceTimer = setTimeout(paintEPrice, 350); }
   async function paintEPrice() {
     const o = ED.o, box = $('#ao-e-price');
@@ -1342,10 +1574,10 @@
     if (!o) return;
     ED.o = o; ED.why = 'customer';
     const t = todayIso();
-    const start = o.sched_date >= t ? addD(o.sched_date, 1) : addD(t, 1);   // a day later by default
+    // No date chosen yet (usability round 2026-10-08): the owner picks it, nothing is pre-filled
     const body = orderLine(o) +
       '<div class="form-grid">' +
-      '<div class="fld"><label for="ao-m-date">New date</label><input id="ao-m-date" type="date" min="' + t + '" value="' + start + '"></div>' +
+      '<div class="fld"><label for="ao-m-date">New date</label><input id="ao-m-date" type="date" min="' + t + '" value=""></div>' +
       '<div class="fld"><label for="ao-m-time">Time slot</label><select id="ao-m-time">' + slotsWith(o.sched_time) + '</select></div>' +
       '</div>' +
       '<div class="fld"><span class="lbl">Why is it moving?</span>' + reasonChips('ao-m-why', MOVE_WHY, ED.why) + '</div>' +
@@ -1469,10 +1701,12 @@
     if (mode === 'approve') {
       const tm = addD(todayIso(), 1);
       body += '<h4 class="ao-qh">Schedule the cleaning</h4><div class="form-grid">' +
-        '<div class="fld"><label for="ao-q-date">Date</label><input id="ao-q-date" type="date" min="' + todayIso() + '" value="' + tm + '"></div>' +
+        '<div class="fld"><label for="ao-q-date">Date</label><input id="ao-q-date" type="date" min="' + todayIso() + '" value="' + tm + '" data-inp="ao-q-date"></div>' +
         '<div class="fld"><label for="ao-q-time">Time slot</label><select id="ao-q-time">' + slotOptions('10:00') + '</select></div>' +
         '<div class="fld"><label for="ao-q-team">Team</label><select id="ao-q-team"><option value="">No team yet</option>' +
-        activeTeams().map(t => '<option value="' + esc(t.team) + '">' + esc(teamShort(t.team)) + '</option>').join('') + '</select></div>' +
+        activeTeams().map(t => '<option value="' + esc(t.team) + '">' + esc(teamShort(t.team)) + '</option>').join('') + '</select>' +
+        // the team suggestion for that day and area (usability round 2026-10-08)
+        '<div class="sub ao-qsg" id="ao-q-sg" aria-live="polite"></div></div>' +
         '<div class="fld"><label for="ao-q-days">How many days</label><select id="ao-q-days">' + dayOptions(1) + '</select></div>' +
         '<div class="fld full"><label for="ao-q-amt">Amount (₹, locked)</label><input id="ao-q-amt" inputmode="numeric" value="' + esc(o.quote_amount) + '"></div>' +
         '</div><p class="sub">The cleaning order gets the client, tanks and services of this survey. Its price stays fixed even if the driver measures differently (you get an alert).</p>';
@@ -1480,19 +1714,48 @@
     if (mode === 'decline') {
       body += '<div class="fld"><label for="ao-q-why">Reason (optional)</label><input id="ao-q-why" maxlength="150" placeholder="e.g. too costly, booked elsewhere"></div>';
     }
+    // "Send quotation" asks first, in the dialog itself (usability round 2026-10-08)
+    if (mode === 'send') {
+      body += '<div class="box ' + (noWa(o) ? 'warn' : 'info') + ' ao-qconf"><b>' + (st === 'sent' ? 'Send the quotation again?' : 'Send the quotation?') + '</b><div>' +
+        (noWa(o) ? 'No WhatsApp: nothing is sent. Call ' + esc(o.client_name) + ' on ' + telLink(o.phone) + ' and tell them ' + inr(o.quote_amount) + '.'
+          : esc(o.client_name) + ' gets the quotation of <b>' + inr(o.quote_amount) + '</b> on WhatsApp (' + esc(phoneText(o.phone)) + '), with Yes / No buttons.') + '</div></div>';
+    }
     body += '<p class="err" id="ao-merr" role="alert" hidden></p>';
     let foot;
     if (mode === 'approve') foot = '<button type="button" class="btn" data-act="ao-q-back">Back</button><button type="button" class="btn pri" data-act="ao-q-approve">Create cleaning order</button>';
     else if (mode === 'decline') foot = '<button type="button" class="btn" data-act="ao-q-back">Back</button><button type="button" class="btn danger" data-act="ao-q-decline">Mark declined</button>';
+    else if (mode === 'send') foot = '<button type="button" class="btn" data-act="ao-q-back">Back</button><button type="button" class="btn pri" data-act="ao-q-send">' +
+      (noWa(o) ? 'Mark as told' : st === 'sent' ? 'Yes, send again' : 'Yes, send') + '</button>';
     else {
+      // Approve is the main (green) button only once the quotation has gone to the client;
+      // before that, sending it is the main step.
       foot = '<button type="button" class="btn" data-act="ao-mclose">Close</button>';
       if (open) foot += '<button type="button" class="btn" data-act="ao-q-mode" data-m="decline">Declined</button>' +
-        '<button type="button" class="btn" data-act="ao-q-send">' + (st === 'sent' ? 'Send again' : 'Send quotation') + '</button>';
-      if (open || (done && st === 'declined')) foot += '<button type="button" class="btn pri" data-act="ao-q-mode" data-m="approve">Approve &amp; schedule</button>';
+        '<button type="button" class="btn' + (st === 'sent' ? '' : ' pri') + '" data-act="ao-q-mode" data-m="send">' + (st === 'sent' ? 'Send again' : 'Send quotation') + '</button>';
+      if (open || (done && st === 'declined')) foot += '<button type="button" class="btn' + (st === 'sent' ? ' pri' : '') + '" data-act="ao-q-mode" data-m="approve">Approve &amp; schedule</button>';
       if (st === 'approved' && o.quote_order_id) foot += '<button type="button" class="btn pri" data-act="ao-q-open" data-id="' + esc(o.quote_order_id) + '">Open order #' + esc(o.quote_order_id) + '</button>';
     }
     openModal('dlg ao-qdlg', 'Quotation · ' + esc(o.client_name), body, foot);
+    if (mode === 'approve') qSuggest();
   }
+
+  /* The team suggestion in "Approve & schedule": order.suggest for the survey's area on the
+     chosen date. "Use" puts it in the Team box (nothing is picked by itself). */
+  async function qSuggest() {
+    const o = ED.o, box = $('#ao-q-sg'), d = $('#ao-q-date') ? $('#ao-q-date').value : '';
+    if (!o || !box) return;
+    if (!d || !o.area) { box.textContent = o.area ? '' : 'No area on this survey: pick the team yourself.'; return; }
+    const my = ++AO.seq.side;
+    box.textContent = 'Finding the best team…';
+    try {
+      const sg = await api('order.suggest', { area: o.area, sched_date: d });
+      if (my !== AO.seq.side || !$('#ao-q-sg') || ED.o !== o) return;
+      $('#ao-q-sg').innerHTML = sg && sg.team ? 'Suggested: <b>' + esc(teamShort(sg.team)) + '</b> (' + esc(sg.why) + ') ' +
+        '<button type="button" class="lnk" data-act="ao-q-use" data-t="' + esc(sg.team) + '">Use</button>' : 'No team suggestion.';
+    } catch (e) { if (my === AO.seq.side && $('#ao-q-sg') && e.message !== 'AUTH') $('#ao-q-sg').textContent = errText(e); }
+  }
+  onInp('ao-q-date', () => qSuggest());
+  onAct('ao-q-use', el => { const s = $('#ao-q-team'); if (s) s.value = el.dataset.t; });
   App.openQuote = o => { known[o.order_id] = o; openQuote(o, ''); };
   onAct('ao-q-mode', el => { if (ED.o) openQuote(ED.o, el.dataset.m); });
   onAct('ao-q-back', () => { if (ED.o) openQuote(ED.o, ''); });
@@ -1759,7 +2022,10 @@
         const eta = !done && o.status !== 'reached' && o.eta_sent ? ' · expected ~' + fm(mins(o.eta_sent)) : '';
         h += '<li class="ao-stop' + (done ? ' done' : '') + (cur ? ' cur' : '') + '">' +
           '<i class="ao-n">' + (done ? '✓' : i + 1) + '</i>' +
-          '<div class="ao-sb"><div><b class="ao-tm">' + fm(mins(o.sched_time)) + '</b> ' + clientLink(o) + '</div>' +
+          '<div class="ao-sb"><div><b class="ao-tm">' + fm(mins(o.sched_time)) + '</b> ' + clientLink(o) +
+          // Call the customer from the stop (usability round 2026-10-08)
+          (dialNo(o.phone) ? ' <a class="ao-scall" href="tel:+' + dialNo(o.phone) + '" aria-label="Call ' + esc(o.client_name) + '" title="Call ' + esc(o.client_name) + ', ' +
+            esc(phoneText(o.phone)) + '">' + WA.icons.call + '<span>' + esc(phoneText(o.phone)) + '</span></a>' : '') + '</div>' +
           '<div class="sub">' + esc(areaName(o.area)) + eta + stopPills(o) + '</div></div></li>';
       });
       h += '</ol>';

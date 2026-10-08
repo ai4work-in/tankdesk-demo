@@ -148,7 +148,8 @@ const DR = {
   pending: {},      // order_id -> an action sent but not confirmed yet (see drSend)
   ticks: {},        // order_id -> list of service keys ticked on the checklist
   crew: {},         // order_id -> worker names tapped under "કોણે કામ કર્યું?" (log book)
-                    // (the tanks being typed live in the shared tank editor, TankEd key 'dr:<order_id>')
+                    // (tank sizes are READ-ONLY for drivers since 2026-10-08: see drTanksBubble)
+  size: {},         // order_id -> a "માપ અલગ છે" report {note, state:'sending'|'failed'} (see drSizeSend)
   finish: {},       // order_id -> true after "આખું કામ પૂર્ણ" on a multi-day job (shows the checklist)
   left: {},         // order_id -> {at, to, eta, late} after "I have left"
   chat: null,       // order_id of the job chat that is open (null = none)
@@ -158,15 +159,87 @@ const DR = {
   moving: null,     // end-of-day jobs shown as moved before the server confirmed: {items, state, seq}
   undo: null,       // the action waiting in its 5-second "રદ કરો" window (see drHold)
   delayAt: {},      // order_id -> new arrival time ("HH:MM") worked out when "મોડો પડીશ" was sent (to tell a no-WhatsApp customer)
+  restored: false,  // true once the work kept on the phone was put back for this login (drWipRestore)
   token: ''         // which login the data belongs to (a new login starts fresh)
 };
+// Reasons for "I will be late" (orders.gs LATE_REASONS)
 const DR_REASONS = ['traffic', 'prev', 'vehicle', 'other'];
+// Reasons for moving a job at the end of the day (added 2026-10-08: the customer-side reasons)
+const DR_DE_REASONS = ['not_home', 'cust_later', 'time_out', 'not_empty', 'traffic', 'prev', 'vehicle', 'other'];
+// Minutes for "I will be late" (up to 3 hours)
+const DR_LATE_MINS = [15, 30, 45, 60, 90, 120, 180];
 // Small clock, shown on a message that is still being sent (like an unsent WhatsApp message)
 const ICON_CLOCK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/></svg>';
 // (messages from the office show TX.office as the sender, the customer's replies TX.customer)
 
 // Small icon for the "end the day" row (a moon)
 const DR_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>';
+
+/* ---------- work in progress kept ON THE PHONE (added 2026-10-08) ----------
+   Phones often close the browser in the background (after Call or Map). So, per job,
+   we keep on the phone: the ticks, the crew, "આખું કામ પૂર્ણ" opened, and anything not yet
+   confirmed by the server (the "outbox": an action being sent or failed, a size report).
+   One localStorage entry: 'td-dr-wip' = {team, jobs: {order_id: {ticks, crew, finish, out, size}}}.
+   - restored once per login when the job list arrives (drWipRestore)
+   - failed sends are tried again then, and whenever the network comes back ('online')
+   - cleared as soon as the server said OK
+   Every storage access is inside try/catch: in private mode nothing is kept, the app still works. */
+const DR_WIP_KEY = 'td-dr-wip';
+function drWipRead() {
+  try {
+    const x = JSON.parse(localStorage.getItem(DR_WIP_KEY) || 'null');
+    return x && typeof x === 'object' && x.jobs && typeof x.jobs === 'object' ? x : null;
+  } catch (e) { return null; }
+}
+// Write what is in progress now (or remove the entry when nothing is)
+function drWipSave() {
+  if (!App.session || App.session.role !== 'driver') return;
+  const jobs = {};
+  const job = id => jobs[id] || (jobs[id] = {});
+  Object.keys(DR.ticks).forEach(id => { if ((DR.ticks[id] || []).length) job(id).ticks = DR.ticks[id]; });
+  Object.keys(DR.crew).forEach(id => { if ((DR.crew[id] || []).length) job(id).crew = DR.crew[id]; });
+  Object.keys(DR.finish).forEach(id => { if (DR.finish[id]) job(id).finish = true; });
+  Object.keys(DR.pending).forEach(id => {
+    const p = DR.pending[id];
+    // only what has left the undo window and is not confirmed yet
+    if (p.state === 'sending' || p.state === 'failed') job(id).out = { kind: p.kind, action: p.action, params: p.params, text: p.text, at: p.at };
+  });
+  Object.keys(DR.size).forEach(id => { job(id).size = DR.size[id].note; });
+  try {
+    if (Object.keys(jobs).length) localStorage.setItem(DR_WIP_KEY, JSON.stringify({ team: App.session.team, jobs: jobs }));
+    else localStorage.removeItem(DR_WIP_KEY);
+  } catch (e) { /* storage full or blocked: nothing is kept */ }
+}
+// Put the kept work back (once per login, when the list has arrived). Jobs no longer in the
+// list are forgotten; unconfirmed actions come back as "not sent" and are tried again at once.
+function drWipRestore() {
+  const w = drWipRead();
+  if (!w) return;
+  if (String(w.team) !== String(App.session.team)) { try { localStorage.removeItem(DR_WIP_KEY); } catch (e) { /* ignore */ } return; }
+  Object.keys(w.jobs).forEach(id => {
+    const j = w.jobs[id] || {}, o = (DR.orders || []).find(x => String(x.order_id) === String(id));
+    if (!o) return;
+    if (o.status === 'reached' || j.out) {   // ticks and crew only matter while the team is at the site
+      if (Array.isArray(j.ticks) && !DR.ticks[id]) DR.ticks[id] = j.ticks.filter(k => (o.services || []).includes(k));
+      if (Array.isArray(j.crew) && !DR.crew[id]) DR.crew[id] = j.crew.slice();
+      if (j.finish) DR.finish[id] = true;
+    }
+    if (j.out && j.out.action && !DR.pending[id]) DR.pending[id] = Object.assign({}, j.out, { state: 'failed' });
+    if (j.size && !DR.size[id]) DR.size[id] = { note: String(j.size), state: 'failed' };
+  });
+  drWipSave();
+  drRetryAll();
+}
+// true when something of this job could not be sent (red bar in the chat, red badge on the row)
+const drHasFail = id => !!((DR.pending[id] && DR.pending[id].state === 'failed') || (DR.size[id] && DR.size[id].state === 'failed'));
+// Send again everything that failed (all jobs). Used on app open and when the network is back.
+function drRetryAll() {
+  if (!App.session || App.session.role !== 'driver') return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;   // still offline: wait for 'online'
+  Object.keys(DR.pending).forEach(id => drRetry(id));
+  Object.keys(DR.size).forEach(id => { if (DR.size[id].state === 'failed') drSizeSend(id); });
+}
+window.addEventListener('online', () => drRetryAll());
 
 /* ---------- lookups in setup ----------
    svcT / typeT / areaT: the name in the chosen language (name_gu or name_en), for the screen.
@@ -228,13 +301,13 @@ function drCallBubble(o, words, title, wordsEn) {
     (words ? '<div class="dr-say">«' + guText(words) + '»' + enMean(wordsEn) + '</div>' : '') + drCallBtn(o), '', { who: TX.office, cls: 'dr-callb' });
 }
 // The words to say, the same as the WhatsApp templates (apps-script/whatsapp.gs)
-const drSayDelay = (m, r, time) => 'માફ કરજો, અમારી ટીમ લગભગ ' + m + ' મિનિટ મોડી પહોંચશે. કારણ: ' + esc((REASON[r] || REASON.other).gu) + '.' +
+const drSayDelay = (m, r, time) => 'માફ કરજો, અમારી ટીમ લગભગ ' + m + ' મિનિટ મોડી પહોંચશે. કારણ: ' + esc(reasonCust(r)) + '.' +
   (time ? ' અમે લગભગ <b>' + fm(mins(time)) + '</b> સુધીમાં પહોંચી જઈશું.' : '');
 const drSayEta = time => 'અમે લગભગ <b>' + fm(mins(time)) + '</b> સુધીમાં પહોંચી જઈશું.';
 const drSayDone = o => 'કામ પૂર્ણ થયું: ' + esc((o.done_checklist || []).map(svcGu).join(', ') || '-') + '.' +
   ((o.not_done || []).length ? ' બાકી: ' + esc(o.not_done.map(svcGu).join(', ')) + '.' : '') + ' કામ બરાબર થયું?';
 // The same words in English (only for the "In English: …" line; the customer hears Gujarati)
-const drSayDelayEn = (m, r, time) => esc(CUST_EN.delay(m, (REASON[r] || REASON.other).en, time ? fm(mins(time)) : ''));
+const drSayDelayEn = (m, r, time) => esc(CUST_EN.delay(m, reasonCustEn(r), time ? fm(mins(time)) : ''));
 const drSayEtaEn = time => esc(CUST_EN.eta(fm(mins(time))));
 const drSayDoneEn = o => esc(CUST_EN.done((o.done_checklist || []).map(svcEn).join(', ') || '-', (o.not_done || []).map(svcEn).join(', ')));
 // New arrival time after "I will be late" (same rule as the server, orders.gs delayArrival_):
@@ -261,6 +334,8 @@ async function drLoad() {
       DR.orders = data.orders || [];
       DR.token = tok;
       if (fresh) { DR.error = ''; drClearSent(seq); }
+      // First list of this login: put back the work kept on the phone (ticks, crew, unsent actions)
+      if (!DR.restored) { DR.restored = true; drWipRestore(); }
       drShow('auto');
     });
     DR.error = '';
@@ -315,8 +390,8 @@ function drReady(el) {
   // Someone else logged in on this phone: forget the old data and close an old chat
   if (DR.token !== App.session.token) {
     drUndoClear();   // an old login's waiting action is dropped, never sent with the new login
-    Object.assign(DR, { orders: null, error: '', ticks: {}, crew: {}, finish: {}, left: {}, pending: {}, chat: null, chatHtml: '', late: null, sheet: null, moving: null, token: App.session.token });
-    TankEd.resetAll('dr:');   // tank sizes typed under the old login
+    Object.assign(DR, { orders: null, error: '', ticks: {}, crew: {}, size: {}, finish: {}, left: {}, pending: {}, chat: null, chatHtml: '', late: null,
+      sheet: null, moving: null, restored: false, token: App.session.token });
     WA.closeChat();
   }
   if (DR.orders) return true;
@@ -381,6 +456,7 @@ function drStatus(o) {
 function drRow(o, next) {
   const s = drStatus(o);
   const bad = s.cls === 'bad' && (o.dispute || o.customer_confirm === 'no');
+  const fail = drHasFail(o.order_id);   // something of this job could not be sent: small red badge
   return WA.row({
     name: o.client_name,
     time: timeOf(o),
@@ -388,8 +464,8 @@ function drRow(o, next) {
     // status first (it matters most), then area and services
     preview: (drNoWa(o) ? drNoWaBadge() + ' ' : '') + drChips(o, o.sched_date > todayIso() ? o.sched_date : todayIso()) +
       '<span class="dr-st ' + s.cls + '">' + esc(s.text) + '</span> · ' + esc(areaT(o.area)) + ' · ' + esc(drSvcs(o)),
-    badge: bad ? '!' : next ? tr('હવે', 'Now') : '',
-    badgeCls: bad ? 'bad' : '',
+    badge: fail ? '⚠' : bad ? '!' : next ? tr('હવે', 'Now') : '',
+    badgeCls: fail || bad ? 'bad' : '',
     current: next,
     act: 'dr-open',
     data: { id: o.order_id },
@@ -449,8 +525,13 @@ function drSummaryHtml() {
   if (part) bits.push(part + tr(' થોડું બાકી', ' partly done'));
   if (moved) bits.push(moved + tr(' ખસેડ્યું', ' moved'));
   const great = full > 0 && !part && !moved;
+  // Moved customers WITHOUT WhatsApp got no message: "આ ગ્રાહકોને ફોન કરો" with a call button each
+  const calls = drMoved().filter(drNoWa);
   return '<div class="dr-sum ' + (great ? 'ok' : 'warn') + '" role="status"><b>' + tr('આજે: ', 'Today: ') + esc(bits.join(' · ')) + '</b>' +
-    (great ? '<span>' + tr('શાબાશ!', 'Well done!') + '</span>' : '') + '</div>';
+    (great ? '<span>' + tr('શાબાશ!', 'Well done!') + '</span>' : '') + '</div>' +
+    (calls.length ? '<div class="dr-calls"><b>' + esc(TX.call_these) + '</b>' + calls.map(o =>
+      '<div class="dr-calls-r"><span><b>' + esc(o.client_name) + '</b><span class="sub">→ ' + esc(labT(o.sched_date)) + ' · ' + timeOf(o) +
+      (o.delay_reason && REASON[o.delay_reason] ? ' · ' + esc(lbl(REASON[o.delay_reason])) : '') + '</span></span>' + drCallBtn(o) + '</div>').join('') + '</div>' : '');
 }
 
 /* ---------- page: upcoming (chat list grouped by day) ---------- */
@@ -512,9 +593,10 @@ function drCardBubble(o) {
     kv(TX.phone, '<a href="' + telUrl(o.phone) + '">' + esc(phoneText(o.phone)) + '</a>') +
     '</dl>';
   let h = WA.bubble('in', html, '', { who: TX.office });
-  // No WhatsApp: say so at the top of the chat, with the call button
+  // No WhatsApp: say so at the top of the chat. (The call button is in ONE call card at the
+  // end of the chat, with the latest words to say: see drChatParts. Also Call in the header.)
   if (drNoWa(o)) {
-    h += WA.bubble('in', drNoWaBadge() + '<div class="dr-nowa-t">' + tr('આ ગ્રાહકને WhatsApp મેસેજ જતા નથી. દરેક વાત ફોન કરીને જણાવો.', 'This customer gets no WhatsApp messages. Tell them everything by phone.') + '</div>' + drCallBtn(o),
+    h += WA.bubble('in', drNoWaBadge() + '<div class="dr-nowa-t">' + tr('આ ગ્રાહકને WhatsApp મેસેજ જતા નથી. દરેક વાત ફોન કરીને જણાવો.', 'This customer gets no WhatsApp messages. Tell them everything by phone.') + '</div>',
       '', { who: TX.office, cls: 'dr-callb' });
   }
   if (o.notes) h += WA.bubble('in', '<b>' + TX.note + ':</b> ' + esc(o.notes), '', { who: TX.office, cls: 'warn' });
@@ -549,7 +631,7 @@ function drLateBubble(o) {
     const etaLine = 'અમે લગભગ ' + fm(mins(eta)) + ' સુધીમાં પહોંચી જઈશું.';
     prev = '<div class="dr-prev"><span class="dr-lbl">' + (noWa ? tr('ગ્રાહકને ફોન કરીને આ કહો:', 'Call the customer and say this:') : tr('ગ્રાહકને આ મેસેજ જશે:', 'The customer will get this message:')) + '</span>' +
       (L.reason
-        ? guText('«માફ કરજો, અમારી ટીમ લગભગ ' + L.mins + ' મિનિટ મોડી પહોંચશે. કારણ: ' + esc(REASON[L.reason].gu) + '. <b>' + etaLine + '</b>»') +
+        ? guText('«માફ કરજો, અમારી ટીમ લગભગ ' + L.mins + ' મિનિટ મોડી પહોંચશે. કારણ: ' + esc(reasonCust(L.reason)) + '. <b>' + etaLine + '</b>»') +
           enMean(drSayDelayEn(L.mins, L.reason, eta))
         : '<b class="dr-eta">' + guText(etaLine) + '</b>' + enMean(drSayEtaEn(eta)) +
           '<span class="muted">' + tr('હવે કારણ પસંદ કરો.', 'Now pick the reason.') + '</span>') + '</div>';
@@ -557,11 +639,12 @@ function drLateBubble(o) {
   return WA.bubble('in',
     '<b>' + tr('મોડા છો? ગ્રાહકને જણાવો', 'Running late? Tell the customer') + '</b>' + (noWa ? '<div>' + drNoWaBadge() + '</div>' : '') +
     '<span class="dr-lbl">' + tr('કેટલી મિનિટ મોડા?', 'How many minutes late?') + '</span><div class="wa-chips">' +
-    [15, 30, 45, 60].map(m => chip('mins', m, m + ' ' + TX.minutes, L.mins === m)).join('') + '</div>' +
+    DR_LATE_MINS.map(m => chip('mins', m, m <= 60 ? m + ' ' + TX.minutes : durT(m), L.mins === m)).join('') + '</div>' +
     '<span class="dr-lbl">' + tr('કારણ', 'Reason') + '</span><div class="wa-chips">' +
     DR_REASONS.map(r => chip('reason', r, lbl(REASON[r]), L.reason === r)).join('') + '</div>' +
     prev +
-    '<button class="dr-send" data-act="dr-delay-send" data-id="' + o.order_id + '"' + (ready ? '' : ' disabled') + '>' + WA.icons.send +
+    // No WhatsApp: "save" is an OUTLINE button, so it never looks like the green Call button under it
+    '<button class="dr-send' + (noWa ? ' dr-send-ol' : '') + '" data-act="dr-delay-send" data-id="' + o.order_id + '"' + (ready ? '' : ' disabled') + '>' + WA.icons.send +
     '<span>' + (noWa ? tr('મોડાની નોંધ કરો', 'Save the delay') : tr('ગ્રાહકને WhatsApp મોકલો', 'Send WhatsApp to the customer')) + '</span></button>' +
     (noWa ? drCallBtn(o) : ''),
     '', { who: TX.office, cls: 'dr-late' });
@@ -575,11 +658,11 @@ function drConfirmPart(o) {
   const p = DR.pending[o.order_id];
   // An answer tapped, still in its undo window or on its way: show it with a clock
   if (p && p.kind === 'confirm' && drBusyState(p)) {
-    return drOut(o, 'confirm', p.params.answer === 'yes' ? TX.cust_yes : TX.cust_no, fm(p.at), p.params.answer === 'yes' ? '' : 'bad');
+    return drOut(o, 'confirm', p.params.answer === 'yes' ? TX.cf_yes : TX.cf_no, fm(p.at), p.params.answer === 'yes' ? '' : 'bad');
   }
-  if (o.customer_confirm === 'yes') return WA.bubble('out', '<b>' + TX.cust_yes + '</b><br><span class="sub">' + tr('ગ્રાહકે રૂબરૂ હા કહી', 'The customer said yes in person') + '</span>', '', { ticks: 2 });
+  if (o.customer_confirm === 'yes') return WA.bubble('out', '<b>' + TX.cf_yes + '</b><br><span class="sub">' + tr('ગ્રાહકે રૂબરૂ હા કહી', 'The customer said yes in person') + '</span>', '', { ticks: 2 });
   if (o.customer_confirm === 'no' || o.dispute) {
-    return WA.bubble('out', '<b>' + TX.cust_no + '</b>', '', { ticks: 2, cls: 'bad' }) +
+    return WA.bubble('out', '<b>' + TX.cf_no + '</b>', '', { ticks: 2, cls: 'bad' }) +
       WA.bubble('in', tr('ગ્રાહકે ના કહી. માલિકને જાણ કરી છે.', 'The customer said no. The owner has been told.'), '', { who: TX.office, cls: 'bad' });
   }
   const off = drSending(o.order_id) ? ' disabled' : '';
@@ -587,8 +670,8 @@ function drConfirmPart(o) {
     '<div class="dr-say">«' + guText(drSayDone(o)) + '»' + enMean(drSayDoneEn(o)) + '</div>' +
     '<span class="dr-lbl">' + tr('ગ્રાહકનો જવાબ:', "Customer's answer:") + '</span>' +
     '<div class="dr-cf">' +
-    '<button class="dr-cf-yes" data-act="dr-confirm" data-id="' + o.order_id + '" data-v="yes"' + off + '>' + TX.cust_yes + '</button>' +
-    '<button class="dr-cf-no" data-act="dr-confirm" data-id="' + o.order_id + '" data-v="no"' + off + '>' + TX.cust_no + '</button></div>' +
+    '<button class="dr-cf-yes" data-act="dr-confirm" data-id="' + o.order_id + '" data-v="yes"' + off + '>' + TX.cf_yes + '</button>' +
+    '<button class="dr-cf-no" data-act="dr-confirm" data-id="' + o.order_id + '" data-v="no"' + off + '>' + TX.cf_no + '</button></div>' +
     '<div class="sub">' + tr('ગ્રાહક ત્યાં ન હોય તો ફોન કરીને પૂછો.', 'If the customer is not there, call and ask.') + '</div>' + drCallBtn(o),
     '', { who: TX.office, cls: 'dr-callb' });
 }
@@ -604,45 +687,58 @@ function drCheckBubble(o) {
     '<div class="dr-cks">' + (o.services || []).map(k => '<button class="dr-ck" aria-pressed="' + ticks.includes(k) + '" data-act="dr-tick" data-id="' + o.order_id + '" data-k="' + esc(k) + '">' +
       '<i aria-hidden="true">' + WA.icons.tick + '</i><span>' + esc(svcT(k)) + '</span></button>').join('') + '</div>' +
     (ticks.length && not.length ? '<div class="box warn">' + tr('બાકી: ', 'Not done: ') + not.map(k => esc(svcT(k))).join(', ') + tr('. માલિકને જાણ કરવામાં આવશે.', '. The owner will be told.') + '</div>' : ''),
-    '', { who: TX.office });
+    '', { who: TX.office, cls: 'dr-ckb' });   // dr-ckb: the chat scrolls here after "reached" (drScrollCk)
 }
 
-/* ---------- log book: who did the work, and the tank sizes ----------
+/* ---------- log book: who did the work ----------
    Shown under the checklist while the team is at the site, sent with "કામ પૂર્ણ થયું".
-   - "કોણે કામ કર્યું?": one chip per worker of the team (Teams tab worker_names), tap to pick.
-   - "ટાંકીનું માપ": the shared tank editor (tank-editor.js), pre-filled from the client's
-     last visit (the server copies them onto the new order): position, material
-     (સિમેન્ટ / પ્લાસ્ટિક), litres or L × W × H, how many. Nothing about money. */
+   "કોણે કામ કર્યું?": one chip per worker of the team (Teams tab worker_names), tap to pick.
+   Tank sizes are NOT typed by drivers any more (decision 2026-10-08): they are shown
+   read-only near the top of the job (drTanksBubble), with a "માપ અલગ છે" button. */
 // The worker names of the driver's own team (setup.get sends only the own team's)
 function drWorkers() {
   const t = ((App.setup && App.setup.teams) || []).find(x => x.team === App.session.team);
   return (t && t.worker_names) || [];
 }
-const drTkKey = id => 'dr:' + id;   // the tank editor of one job
-// The bubble with the crew chips and the tank editor
+// The bubble with the crew chips (nothing when the team has no worker names)
 function drLogBubble(o) {
   const id = o.order_id, workers = drWorkers(), crew = DR.crew[id] || [];
-  return WA.bubble('in',
-    (workers.length ? '<b>' + tr('કોણે કામ કર્યું?', 'Who did the work?') + '</b>' +
-      '<div class="wa-chips dr-crew">' + workers.map(w => '<button type="button" data-act="dr-crew" data-id="' + id + '" data-n="' + esc(w) + '" aria-pressed="' + crew.includes(w) + '">' + esc(w) + '</button>').join('') + '</div>' : '') +
-    '<b class="dr-tk-t">' + TX.tank_sizes + '</b>' +
-    ((o.tanks || []).length ? '<div class="sub">' + tr('છેલ્લી વખતનું માપ ભરેલું છે. બદલાયું હોય તો સુધારો.', 'Sizes from the last visit are filled in. Correct them if they changed.') + '</div>' : '') +
-    TankEd.html(drTkKey(id), o.tanks, { lang: uiLang() }),
+  if (!workers.length) return '';
+  return WA.bubble('in', '<b>' + tr('કોણે કામ કર્યું?', 'Who did the work?') + '</b>' +
+    '<div class="wa-chips dr-crew">' + workers.map(w => '<button type="button" data-act="dr-crew" data-id="' + id + '" data-n="' + esc(w) + '" aria-pressed="' + crew.includes(w) + '">' + esc(w) + '</button>').join('') + '</div>',
     '', { who: TX.office, cls: 'dr-log' });
+}
+
+/* ---------- tank sizes, READ-ONLY (added 2026-10-08) ----------
+   The sizes come from the office (New order / Edit) or the supervisor's survey. The driver
+   only reads them. If the tanks at the site are different, "માપ અલગ છે" opens a small sheet
+   (drSizeSheet) and the office gets an alert (order.sizeIssue). Nothing about money. */
+// Small ruler icon for the "માપ અલગ છે" button
+const DR_RULER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></svg>';
+function drTanksBubble(o, canReport) {
+  const tk = o.tanks || [], s = DR.size[o.order_id];
+  const list = tk.length
+    ? '<div class="dr-tkro">' + tk.map(t => '<span class="dr-tkline">' + esc(tankTextT(t)) + '</span>').join('') +
+      (tk.length > 1 ? '<span class="dr-tkline"><b>' + tr('કુલ ', 'Total ') + litresText(tanksTotal(tk)) + ' ' + TX.litres + '</b></span>' : '') + '</div>'
+    : '<div class="dr-tknone">' + tr('ટાંકીનું માપ સેવ નથી', 'No tank sizes saved') + '</div>';
+  // A report on its way, or not sent (the red bar at the bottom sends it again)
+  const sent = s ? '<div class="dr-sizeq' + (s.state === 'failed' ? ' bad' : '') + '">' + esc(TX.size_diff) + ': ' + esc(s.note) + ' · ' +
+    (s.state === 'failed' ? tr('મોકલાયું નહીં', 'Not sent') : TX.sending) + '</div>' : '';
+  return WA.bubble('in', '<b>' + TX.tank_sizes + '</b>' + list + sent +
+    (canReport && !s ? '<button type="button" class="dr-sizebtn" data-act="dr-size" data-id="' + o.order_id + '">' + DR_RULER + '<span>' + esc(TX.size_diff) + '</span></button>' : ''),
+    '', { who: TX.office, cls: 'dr-tks' });
 }
 
 /* ---------- messages the driver sends (WhatsApp style) ----------
    A tapped action shows at once with a small clock. When the server says OK
    the clock becomes ✓✓. If it fails, the message turns red with "send again". */
 const drDelayHtml = (m, r) => tr('<b>' + m + ' મિનિટ</b> મોડો પડીશ', '<b>' + m + ' min</b> late') + '<br>' + esc(lbl(REASON[r] || REASON.other));
-// crew and tanks (log book) are shown under the services when they were saved
-const drDoneHtml = (done, not, crew, tanks) => '<b>' + tr('કામ પૂર્ણ', 'Work done') + '</b><div class="dr-done">' +
+// the crew (log book) is shown under the services when it was saved
+// (tank sizes are not repeated here: they are shown read-only at the top of the job)
+const drDoneHtml = (done, not, crew) => '<b>' + tr('કામ પૂર્ણ', 'Work done') + '</b><div class="dr-done">' +
   done.map(k => '<span class="ok">✓ ' + esc(svcT(k)) + '</span>').join('') +
   not.map(k => '<span class="no">✗ ' + esc(svcT(k)) + '</span>').join('') + '</div>' +
-  ((crew || []).length ? '<div class="dr-crewl"><span class="dr-lbl">' + tr('કામ કરનાર', 'Worked by') + '</span>' + esc(crew.join(', ')) + '</div>' : '') +
-  ((tanks || []).length ? '<div class="dr-crewl"><span class="dr-lbl">' + TX.tank_sizes + '</span>' +
-    tanks.map(t => '<span class="dr-tkline">' + esc(tankTextT(t)) + '</span>').join('') +
-    (tanks.length > 1 ? '<span class="dr-tkline"><b>' + tr('કુલ ', 'Total ') + litresText(tanksTotal(tanks)) + ' ' + TX.litres + '</b></span>' : '') + '</div>' : '');
+  ((crew || []).length ? '<div class="dr-crewl"><span class="dr-lbl">' + tr('કામ કરનાર', 'Worked by') + '</span>' + esc(crew.join(', ')) + '</div>' : '');
 // true while an action waits in its undo window ('wait') or is on its way ('sending')
 const drBusyState = p => !!(p && (p.state === 'wait' || p.state === 'sending'));
 const drSending = id => drBusyState(DR.pending[id]);
@@ -654,12 +750,17 @@ function drOut(o, kind, html, time, cls) {
   return (p && p.kind === kind && drBusyState(p))
     ? b.replace(WA.icons.ticks, '<i class="dr-clock" aria-label="' + esc(TX.sending) + '">' + ICON_CLOCK + '</i>') : b;
 }
-// The red "not sent" message with a button to send it again
+// The red "not sent" message (the "send again" button is the red bar at the bottom, drFailBar)
 function drFailed(o) {
   const p = DR.pending[o.order_id];
   if (!p || p.state !== 'failed') return '';
-  return WA.bubble('out', p.text + '<button class="dr-retry" data-act="dr-retry" data-id="' + o.order_id + '">⚠ ' + TX.not_sent_retry + '</button>',
-    fm(p.at), { cls: 'bad dr-fail' });
+  return WA.bubble('out', p.text + '<span class="dr-failtxt">⚠ ' + tr('મોકલાયું નહીં', 'Not sent') + '</span>', fm(p.at), { cls: 'bad dr-fail' });
+}
+// The fixed red bar above the bottom buttons while something of this job could not be sent:
+// "મોકલાયું નહીં · ફરી મોકલો" (one big button: sends the failed action and/or size report again)
+function drFailBar(o) {
+  if (!drHasFail(o.order_id)) return '';
+  return '<div class="dr-failbar" role="alert"><button type="button" data-act="dr-retry" data-id="' + o.order_id + '">⚠ ' + TX.not_sent_retry + '</button></div>';
 }
 
 // The order with a not-yet-confirmed action already applied (only while it is being sent or just sent)
@@ -690,7 +791,6 @@ function drPatch(o) {
     x.status = 'done'; x.done_at = at; x.done_checklist = p.params.done;
     x.not_done = (o.services || []).filter(k => !p.params.done.includes(k));
     if (p.params.crew) x.crew = p.params.crew;
-    if (p.params.tanks) x.tanks = p.params.tanks.map(t => Object.assign({}, t, { total_litres: tankTotal(t) }));
     if (drMulti(o)) closeDay();
   }
   return x;
@@ -703,8 +803,9 @@ function drClearSent(seq) {
 
 /* The days of a multi-day job, oldest first: for each day worked, "હું પહોંચી ગયો" and
    "આજનું કામ પૂર્ણ" (with the day's overtime); today's reach with a clock while it is sent.
-   The customer's WhatsApp answer belongs to the first day only. */
-function drDaysPart(o) {
+   The customer's WhatsApp answer belongs to the first day only.
+   cc = {html}: the no-WhatsApp call card is put there (not in the messages), see drChatParts. */
+function drDaysPart(o, cc) {
   const t = todayIso(), n = jobDays(o), noWa = drNoWa(o), wd = workDays(o);
   const closed = wd.filter(w => w.left), openE = wd.find(w => !w.left);
   let m = '';
@@ -722,7 +823,10 @@ function drDaysPart(o) {
     if (openE.date !== o.sched_date) m += WA.day(drDay(openE.date));
     m += drOut(o, 'reach', TX.reached + ' <span class="dr-day">' + esc(TX.day_of(closed.length + 1, n)) + '</span>', fm(mins(openE.reached)));
     // the first day only: the customer's answer (or the call, without WhatsApp)
-    if (!closed.length && o.status === 'reached') m += noWa ? drCallBubble(o, 'અમારી ટીમ પહોંચી ગઈ છે.', drTellTitle(), esc(CUST_EN.reached)) : drReply(o);
+    if (!closed.length && o.status === 'reached') {
+      if (noWa) cc.html = drCallBubble(o, 'અમારી ટીમ પહોંચી ગઈ છે.', drTellTitle(), esc(CUST_EN.reached));
+      else m += drReply(o);
+    }
   } else if (o.status === 'ongoing' && !drDoneToday(o) && jobOnDate(o, t)) {
     m += WA.day(drDay(t)) + WA.sys(drDayLabel(o, t) + tr(': પહોંચો ત્યારે «' + TX.reached + '» દબાવો.', ': press «' + TX.reached + '» when you get there.'));
   }
@@ -756,44 +860,57 @@ function drChatParts(o) {
     // No WhatsApp: the Call button is green, so it stands out
     right: '<a class="wa-ib dr-hb' + (drNoWa(o) ? ' dr-hot' : '') + '" href="' + esc(telUrl(o.phone)) + '" aria-label="' + esc(TX.call_aria) + '">' + WA.icons.call + '<span>' + TX.call_short + '</span></a>' +
       '<a class="wa-ib dr-hb" href="' + esc(mapUrl(o)) + '" target="_blank" rel="noopener" aria-label="' + esc(tr('નકશો ખોલો', 'Open map')) + '">' + WA.icons.map + '<span>' + TX.map_short + '</span></a>'
-  });
+  }).replace('aria-label="Back"', 'aria-label="' + esc(tr('પાછા', 'Back')) + '"');   // chat.js writes "Back": Gujarati for the driver
 
   // Messages, oldest first
   const noWa = drNoWa(o);
+  // Customer WITHOUT WhatsApp: ONE call card with the LATEST words to say (added 2026-10-08).
+  // Each step below puts its words in cc.html (a later step replaces an earlier one); the card is
+  // added once, at the end of the chat. (Before, up to four call buttons with different words.)
+  const cc = { html: '' };
   let m = WA.day(drDay(o.sched_date)) + drCardBubble(o);
+  // Tank sizes, read-only, near the top; "માપ અલગ છે" only for a job of today
+  m += drTanksBubble(o, !readOnly);
   // Moved off today by the end-of-day: a no-WhatsApp customer must be called with the new date
   if (noWa && readOnly && o.moved_from === t && o.sched_date > t) {
-    m += drCallBubble(o, 'તમારું કામ <b>' + esc(labGu(o.sched_date)) + ' · ' + timeOf(o) + '</b> પર ખસેડ્યું છે.' +
-      (o.delay_reason && REASON[o.delay_reason] ? ' કારણ: ' + esc(REASON[o.delay_reason].gu) + '.' : ''), '',
-      esc(CUST_EN.moved(lab(o.sched_date) + ' · ' + timeOf(o), o.delay_reason && REASON[o.delay_reason] ? REASON[o.delay_reason].en : '')));
+    cc.html = drCallBubble(o, 'તમારું કામ <b>' + esc(labGu(o.sched_date)) + ' · ' + timeOf(o) + '</b> પર ખસેડ્યું છે.' +
+      (o.delay_reason && REASON[o.delay_reason] ? ' કારણ: ' + esc(reasonCust(o.delay_reason)) + '.' : ''), '',
+      esc(CUST_EN.moved(lab(o.sched_date) + ' · ' + timeOf(o), o.delay_reason && REASON[o.delay_reason] ? reasonCustEn(o.delay_reason) : '')));
   }
   if (o.eta_sent) {
-    m += !noWa ? WA.bubble('out', tr('ગ્રાહકને અંદાજિત સમય મોકલ્યો: ', 'Arrival time sent to the customer: ') + '<b>' + fm(mins(o.eta_sent)) + '</b>', '', { ticks: 2 })
-      : open ? drCallBubble(o, drSayEta(o.eta_sent), tr('અંદાજિત સમય ', 'Arrival time ') + fm(mins(o.eta_sent)) + ' · ' + TX.call_tell, drSayEtaEn(o.eta_sent))
-      : WA.sys(tr('અંદાજિત સમય ', 'Arrival time ') + fm(mins(o.eta_sent)));
+    if (!noWa) m += WA.bubble('out', tr('ગ્રાહકને અંદાજિત સમય મોકલ્યો: ', 'Arrival time sent to the customer: ') + '<b>' + fm(mins(o.eta_sent)) + '</b>', '', { ticks: 2 });
+    else if (open) cc.html = drCallBubble(o, drSayEta(o.eta_sent), tr('અંદાજિત સમય ', 'Arrival time ') + fm(mins(o.eta_sent)) + ' · ' + TX.call_tell, drSayEtaEn(o.eta_sent));
+    else m += WA.sys(tr('અંદાજિત સમય ', 'Arrival time ') + fm(mins(o.eta_sent)));
   }
   if (o.delay_min > 0) {
     m += drOut(o, 'delay', drDelayHtml(o.delay_min, o.delay_reason), '');
     // No WhatsApp: the late message was NOT sent, the driver calls with these words
-    if (noWa && open) m += drCallBubble(o, drSayDelay(o.delay_min, o.delay_reason, DR.delayAt[o.order_id]), '',
+    if (noWa && open) cc.html = drCallBubble(o, drSayDelay(o.delay_min, o.delay_reason, DR.delayAt[o.order_id]), '',
       drSayDelayEn(o.delay_min, o.delay_reason, DR.delayAt[o.order_id]));
   }
   if (open && !readOnly && lateBy > 10) {
     m += WA.sys(tr('સમય કરતાં ' + durGu(lateBy) + ' મોડા.', dur(lateBy) + ' behind time.') + (o.delay_min > 0 ? '' : tr(' ગ્રાહકને મોડાની જાણ કરો.', ' Tell the customer you are late.')));
   }
-  if (multi) m += drDaysPart(o);   // one block per day worked (multi-day job)
+  if (multi) m += drDaysPart(o, cc);   // one block per day worked (multi-day job)
   else if (o.reached_at) {
     m += drOut(o, 'reach', TX.reached, fm(mins(o.reached_at)));
-    if (o.status === 'reached') m += noWa ? drCallBubble(o, 'અમારી ટીમ પહોંચી ગઈ છે.', drTellTitle(), esc(CUST_EN.reached)) : drReply(o);
+    if (o.status === 'reached') {
+      if (noWa) cc.html = drCallBubble(o, 'અમારી ટીમ પહોંચી ગઈ છે.', drTellTitle(), esc(CUST_EN.reached));
+      else m += drReply(o);
+    }
   }
   if (o.status === 'done') {
     const done = o.done_checklist || [], not = o.not_done || [];
-    m += drOut(o, 'done', drDoneHtml(done, not, o.crew, o.tanks), o.done_at ? fm(mins(o.done_at)) : '', not.length ? 'warn' : '');
+    m += drOut(o, 'done', drDoneHtml(done, not, o.crew), o.done_at ? fm(mins(o.done_at)) : '', not.length ? 'warn' : '');
     if (o.overtime_min > 0) m += WA.sys(tr('ઓવરટાઇમ: ', 'Overtime: ') + durT(o.overtime_min));
-    m += noWa ? drConfirmPart(o) : drReply(o);
+    // No WhatsApp: "ask the customer" (with its own call button) is the latest card
+    if (noWa) { m += drConfirmPart(o); cc.html = ''; } else m += drReply(o);
   }
+  // The late picker has its own call button (no WhatsApp): then no extra call card
+  const picking = DR.late && String(DR.late.id) === String(o.order_id) && open && !readOnly;
+  if (cc.html && !picking) m += cc.html;
 
-  m += drFailed(o);   // an action that could not be sent, with "send again"
+  m += drFailed(o);   // an action that could not be sent (the red bar at the bottom sends it again)
 
   // What the driver can do now (the buttons at the bottom).
   // While an action is on its way, the buttons wait (wait = true).
@@ -802,7 +919,7 @@ function drChatParts(o) {
   if (readOnly) {
     m += WA.sys(tr('આ કામ ' + labGu(o.sched_date) + ' નું છે.', 'This job is on ' + lab(o.sched_date) + '.'));
   } else if (open) {
-    if (DR.late && String(DR.late.id) === String(o.order_id)) {
+    if (picking) {
       m += drLateBubble(o);
       bottom = WA.quick([{ label: TX.close, act: 'dr-late-cancel', cls: 'full' }]);
     } else {
@@ -812,21 +929,26 @@ function drChatParts(o) {
       ]);
     }
   } else if (o.status === 'reached' && multi && !DR.finish[o.order_id]) {
-    // A multi-day job at the site: today's work done (come back tomorrow), or the whole job done
-    m += WA.bubble('in', tr('<b>આ કામ ' + n + ' દિવસનું છે</b><br>આજનું કામ પૂરું થાય ત્યારે <b>«' + TX.day_done + '»</b> દબાવો. ' +
-      'આખું કામ પૂરું થાય ત્યારે <b>«' + TX.job_done + '»</b> દબાવો.',
-      '<b>This is a ' + n + '-day job</b><br>When today\'s work is finished, press <b>«' + TX.day_done + '»</b>. ' +
-      'When the whole job is finished, press <b>«' + TX.job_done + '»</b>.'), '', { who: TX.office });
+    // A multi-day job at the site: today's work done (come back tomorrow), or the whole job done.
+    // Two clearly different buttons, one under the other: outline moon vs filled tick.
+    m += WA.bubble('in', tr('<b>આ કામ ' + n + ' દિવસનું છે</b><br>આજનું કામ પૂરું થાય ત્યારે <b>«' + TX.day_done_btn + '»</b> દબાવો. ' +
+      'આખું કામ પૂરું થાય ત્યારે <b>«' + TX.job_done_btn + '»</b> દબાવો.',
+      '<b>This is a ' + n + '-day job</b><br>When today\'s work is finished, press <b>«' + TX.day_done_btn + '»</b>. ' +
+      'When the whole job is finished, press <b>«' + TX.job_done_btn + '»</b>.'), '', { who: TX.office });
     bottom = WA.quick([
-      { label: TX.day_done, act: 'dr-daydone', data: { id: o.order_id }, cls: 'pri', disabled: wait },
-      { label: TX.job_done, act: 'dr-finish', data: { id: o.order_id }, disabled: wait }
+      { label: TX.day_done_btn, act: 'dr-daydone', data: { id: o.order_id }, cls: 'full dr-ol', disabled: wait },
+      { label: TX.job_done_btn, act: 'dr-finish', data: { id: o.order_id }, cls: 'pri full', disabled: wait }
     ]);
   } else if (o.status === 'reached') {
     m += drCheckBubble(o);
-    m += drLogBubble(o);   // log book: who did the work and the tank sizes
-    bottom = WA.quick([{ label: multi ? TX.job_done : TX.work_done, act: 'dr-done', data: { id: o.order_id }, cls: 'pri full',
-      disabled: wait || (!(DR.ticks[o.order_id] || []).length && (o.services || []).length > 0) }].concat(multi
-      ? [{ label: TX.day_done + tr(' (કાલે ફરી)', ' (again tomorrow)'), act: 'dr-daydone', data: { id: o.order_id }, cls: 'full', disabled: wait }] : []));
+    m += drLogBubble(o);   // log book: who did the work
+    // No tick yet: the button is not greyed out with no reason. It says "tick the work above
+    // first ↑" and a tap scrolls up to the checklist (dr-tickfirst).
+    const noTick = !(DR.ticks[o.order_id] || []).length && (o.services || []).length > 0;
+    bottom = WA.quick([noTick
+      ? { label: TX.tick_first, act: 'dr-tickfirst', data: { id: o.order_id }, cls: 'full dr-dim', disabled: wait }
+      : { label: multi ? TX.job_done_btn : TX.work_done, act: 'dr-done', data: { id: o.order_id }, cls: 'pri full', disabled: wait }].concat(multi
+      ? [{ label: TX.day_done_btn, act: 'dr-daydone', data: { id: o.order_id }, cls: 'full dr-ol', disabled: wait }] : []));
   } else if (o.status === 'ongoing' && !readOnly) {
     // Today's work was done ("આજનું કામ પૂર્ણ"): nothing more today
     m += WA.sys(tr('આજનું કામ પૂર્ણ. આવતીકાલે ફરી આ કામ પર જવાનું છે.', "Today's work is done. Come back to this job tomorrow."));
@@ -867,7 +989,8 @@ function drChatParts(o) {
       bottom = backBtn;
     }
   }
-  return { head: head, msgs: m, bottom: bottom };
+  // Something could not be sent: the red "send again" bar sits right above the buttons
+  return { head: head, msgs: m, bottom: drFailBar(o) + bottom };
 }
 
 /**
@@ -899,7 +1022,23 @@ function drShowChat(id, how) {
   const box = $('#wa-msgs');
   // 'keep' and 'auto': stay where the driver was, unless they were already at the newest message
   if (box && (how === 'keep' || how === 'auto') && !atBottom) box.scrollTop = top;
+  // At the site (after "reached", or opening such a job): show the checklist from its top,
+  // not the bottom of the chat, so the driver sees at once what to tick (added 2026-10-08)
+  if (how === 'open' || how === 'force') drScrollCk();
 }
+// Scroll the open chat so the checklist starts at the top of the screen. false = no checklist.
+function drScrollCk() {
+  const box = $('#wa-msgs'), ck = box && box.querySelector('.dr-ckb');
+  if (!ck) return false;
+  box.scrollTop += ck.getBoundingClientRect().top - box.getBoundingClientRect().top - 8;
+  return true;
+}
+// "પહેલા ઉપર કામ ટિક કરો ↑" (the work-done button before anything is ticked): go to the checklist
+onAct('dr-tickfirst', () => {
+  if (!drScrollCk()) return;
+  const ck = $('#wa-msgs .dr-ckb');
+  ck.classList.remove('dr-flash'); void ck.offsetWidth; ck.classList.add('dr-flash');   // a short highlight
+});
 
 function drCloseChat() {
   drFlush();   // leaving the chat: an action still in its undo window is sent now, never lost
@@ -1011,7 +1150,22 @@ window.addEventListener('pagehide', () => drFlush());
 // (The buttons are handled in app.js; we wrap them here.)
 const drBasePage = App.actions.page, drBaseLogout = App.actions.logout;
 onAct('page', (el, e) => { drFlush(); drBasePage(el, e); });
-onAct('logout', (el, e) => { drFlush(); drBaseLogout(el, e); });
+onAct('logout', (el, e) => {
+  // Driver (added 2026-10-08): ask first, right there in the menu: "ખરેખર લૉગઆઉટ? ના / હા"
+  if (App.session && App.session.role === 'driver' && el && !el.dataset.sure && el.closest && el.closest('#ph-drawer')) {
+    el.outerHTML = '<div class="dr-lo" role="group"><b>' + tr('ખરેખર લૉગઆઉટ કરવું છે?', 'Log out now?') + '</b><div class="row2">' +
+      '<button type="button" class="btn lg" data-act="dr-logout-no">' + tr('ના', 'No') + '</button>' +
+      '<button type="button" class="btn pri lg" data-act="logout" data-sure="1">' + tr('હા, લૉગઆઉટ', 'Yes, log out') + '</button></div></div>';
+    return;
+  }
+  drFlush();
+  App.phonePage = '';   // the next login opens on the first tab ("આજના કામ" for a driver)
+  drBaseLogout(el, e);
+});
+onAct('dr-logout-no', el => {
+  const box = el.closest('.dr-lo');
+  if (box) box.outerHTML = '<button class="dn" data-act="logout">' + TX.logout + '</button>';
+});
 
 /* ---------- "driver" class on the phone, for the bigger driver styles in phone.css ---------- */
 const drBaseRenderPhone = renderPhone;
@@ -1055,10 +1209,15 @@ function drSend(kind, id, action, params, text, ok, undo) {
 async function drPost(id, p) {
   if (DR.pending[id] !== p) return;
   p.state = 'sending';
+  drWipSave();   // kept on the phone until the server says OK (the app may be closed meanwhile)
   try {
     const r = await api(p.action, p.params);
     if (DR.pending[id] !== p) return;
     p.state = 'sent'; p.seq = DR.seq;
+    // Work done / today's work done: the ticks, crew and "whole job" step are finished with
+    // (here, not only in p.ok: an action put back from the phone's storage has no p.ok)
+    if (p.kind === 'done') { delete DR.ticks[id]; delete DR.crew[id]; delete DR.finish[id]; }
+    if (p.kind === 'daydone') delete DR.finish[id];
     if (p.ok) p.ok(r);
     if (p.kind === 'leave') delete DR.pending[id];   // its answer is kept in DR.left
   } catch (e) {
@@ -1067,6 +1226,7 @@ async function drPost(id, p) {
     if (guCode(e) === 'BAD_STATUS') { delete DR.pending[id]; toast(guErr(e)); }   // the job changed: sending again will not help
     else { p.state = 'failed'; if (!WA.chatOpen()) toast(guErr(e)); }
   }
+  drWipSave();
   if (!App.session) return;   // logged out meanwhile (the action was still sent)
   drShow('force');
   // The saved list is out of date now: forget it and load fresh data in the background
@@ -1074,13 +1234,19 @@ async function drPost(id, p) {
   drLoad();
 }
 
-// "ફરી મોકલો" on a red message: send the same action again (no second undo window)
-onAct('dr-retry', btn => {
-  const id = btn.dataset.id, p = DR.pending[id];
+// Send one job's failed action again (no second undo window). Keeps the original time.
+function drRetry(id) {
+  const p = DR.pending[id];
   if (!p || p.state !== 'failed') return;
-  const np = DR.pending[id] = Object.assign({}, p, { state: 'sending', at: nowMin() });
-  drShow('force');
+  const np = DR.pending[id] = Object.assign({}, p, { state: 'sending' });
+  drShow('keep');
   drPost(id, np);
+}
+// "મોકલાયું નહીં · ફરી મોકલો" (the red bar): the failed action and/or size report of this job
+onAct('dr-retry', btn => {
+  const id = btn.dataset.id;
+  drRetry(id);
+  if (DR.size[id] && DR.size[id].state === 'failed') drSizeSend(id);
 });
 
 // A short "sent ✓" message. Inside a chat the new bubble already shows it, so no pop-up there.
@@ -1096,7 +1262,7 @@ onAct('dr-reach', btn => {
 // No WhatsApp: the customer's answer, asked in person ("ગ્રાહક સંમત ✓" / "ગ્રાહક અસંમત ✗")
 onAct('dr-confirm', btn => {
   const id = btn.dataset.id, v = btn.dataset.v === 'no' ? 'no' : 'yes';
-  drSend('confirm', id, 'order.confirm', { order_id: Number(id), answer: v }, v === 'yes' ? TX.cust_yes : TX.cust_no,
+  drSend('confirm', id, 'order.confirm', { order_id: Number(id), answer: v }, v === 'yes' ? TX.cf_yes : TX.cf_no,
     () => drToast(v === 'yes' ? TX.saved_ok : tr('માલિકને જાણ કરી.', 'The owner has been told.')));
 });
 
@@ -1106,17 +1272,18 @@ onAct('dr-tick', btn => {
   const list = DR.ticks[id] || (DR.ticks[id] = []);
   const i = list.indexOf(k);
   if (i < 0) list.push(k); else list.splice(i, 1);
+  drWipSave();   // kept on the phone (the browser may close after a call)
   drShowChat(id, 'keep');
 });
 
-// Log book: tap a worker's name (crew), change a tank, add or remove a tank
+// Log book: tap a worker's name (crew)
 onAct('dr-crew', btn => {
   const id = btn.dataset.id, nm = btn.dataset.n, list = DR.crew[id] || (DR.crew[id] = []);
   const i = list.indexOf(nm);
   if (i < 0) list.push(nm); else list.splice(i, 1);
+  drWipSave();
   drShowChat(id, 'keep');
 });
-// (tank taps and typing are handled by the shared tank editor, tank-editor.js)
 
 // "કામ પૂર્ણ થયું": send the ticked services (the ticks are kept until the server says OK,
 // so "રદ કરો" brings the checklist back with the same ticks)
@@ -1124,12 +1291,9 @@ onAct('dr-done', btn => {
   const id = btn.dataset.id, o = drOrder(id), done = (DR.ticks[id] || []).slice();
   if (!o || (!done.length && (o.services || []).length)) return;   // a task without a checklist needs no ticks
   const not = (o.services || []).filter(k => !done.includes(k));
-  // Log book: the tank sizes must be right before anything is sent
-  const tk = TankEd.out(drTkKey(id));
-  if (tk.error) { TankEd.setError(drTkKey(id), tk.error); toast(tk.error); return; }
+  // Log book: who did the work. (No tank sizes: drivers do not send them, since 2026-10-08.)
   const crew = (DR.crew[id] || []).slice();
-  drSend('done', id, 'order.done', { order_id: Number(id), done: done, tanks: tk.tanks, crew: crew }, drDoneHtml(done, not, crew, tk.tanks), r => {
-    delete DR.ticks[id]; delete DR.crew[id]; delete DR.finish[id]; TankEd.reset(drTkKey(id));
+  drSend('done', id, 'order.done', { order_id: Number(id), done: done, crew: crew }, drDoneHtml(done, not, crew), r => {
     drToast((drNoWa(o) ? tr('કામ પૂર્ણ. ગ્રાહકને પૂછો ✓', 'Work done. Ask the customer ✓') : tr('કામ પૂર્ણ. ગ્રાહકને WhatsApp મોકલ્યો ✓', 'Work done. WhatsApp sent to the customer ✓')) +
       (r && r.overtime_min > 0 ? tr(' · ઓવરટાઇમ ', ' · overtime ') + durT(r.overtime_min) : ''));
   });
@@ -1140,10 +1304,92 @@ onAct('dr-done', btn => {
 onAct('dr-daydone', btn => {
   const id = btn.dataset.id;
   drSend('daydone', id, 'order.dayDone', { order_id: Number(id) }, '<b>' + TX.day_done + '</b>',
-    () => { delete DR.finish[id]; drToast(TX.day_done + ' ✓ ' + TX.saved_ok); });
+    () => drToast(TX.day_done + ' ✓ ' + TX.saved_ok));
 });
-// Multi-day job: "આખું કામ પૂર્ણ" opens the normal done step (checklist, crew, tanks)
-onAct('dr-finish', btn => { DR.finish[btn.dataset.id] = true; drShowChat(btn.dataset.id, 'force'); });
+// Multi-day job: "આખું કામ પૂરું" opens the normal done step (checklist, crew)
+onAct('dr-finish', btn => { DR.finish[btn.dataset.id] = true; drWipSave(); drShowChat(btn.dataset.id, 'force'); });
+
+/* ---------- "માપ અલગ છે" (Size is different), added 2026-10-08 ----------
+   A small sheet: quick reasons as chips (more tanks / fewer tanks / bigger / smaller / other)
+   and an optional note. Sends order.sizeIssue: the office gets an alert and checks the sizes
+   and the price. Nothing on the order changes. If it cannot be sent it is kept on the phone and
+   the red bar "મોકલાયું નહીં · ફરી મોકલો" sends it again (also automatically when online). */
+// [key, words in the note to the office (English: admin screens are English), chip label on screen]
+const DR_SIZE_CHIPS = [
+  ['more', 'More tanks', () => tr('વધારે ટાંકી છે', 'More tanks')],
+  ['fewer', 'Fewer tanks', () => tr('ઓછી ટાંકી છે', 'Fewer tanks')],
+  ['bigger', 'Bigger', () => tr('ટાંકી મોટી છે', 'Bigger')],
+  ['smaller', 'Smaller', () => tr('ટાંકી નાની છે', 'Smaller')],
+  ['other', 'Other', () => tr('બીજું', 'Other')]
+];
+function drSizeSheet() {
+  const z = DR.sizeSheet, o = z && drOrder(z.id);
+  if (!o) return;
+  openSheet('<h3>' + esc(TX.size_diff) + '</h3>' +
+    '<div class="sub">' + esc(o.client_name) + ' · ' + tr('શું અલગ છે? ઓફિસને જાણ થશે, ઓફિસ માપ અને ભાવ તપાસશે.',
+      'What is different? The office will be told and will check the sizes and the price.') + '</div>' +
+    '<div class="wa-chips dr-szc">' + DR_SIZE_CHIPS.map(c => '<button type="button" data-act="dr-size-pick" data-k="' + c[0] + '" aria-pressed="' +
+      z.picks.includes(c[0]) + '">' + esc(c[2]()) + '</button>').join('') + '</div>' +
+    '<label class="sv-note"><span class="dr-lbl">' + tr('નોંધ (જરૂરી નથી)', 'Note (optional)') + '</span>' +
+    '<textarea id="dr-size-note" maxlength="200" data-inp="dr-size-note" placeholder="' + esc(tr('દા.ત. ઉપર 3 ટાંકી છે, 2 નહીં', 'e.g. 3 tanks on the roof, not 2')) + '">' +
+    esc(z.text) + '</textarea></label>' +
+    '<button class="btn pri lg" data-act="dr-size-send"' + (drSizeNote() ? '' : ' disabled') + '>' + tr('ઓફિસને જણાવો', 'Tell the office') + '</button>' +
+    '<button class="btn lg" data-act="close">' + TX.close + '</button>');
+}
+// The note sent to the office: the chips in English + the driver's own words. '' = nothing chosen yet.
+function drSizeNote() {
+  const z = DR.sizeSheet;
+  if (!z) return '';
+  const words = DR_SIZE_CHIPS.filter(c => z.picks.includes(c[0])).map(c => c[1]).join(', ');
+  const text = String(z.text || '').trim();
+  return (words && text ? words + ': ' + text : words || text).slice(0, 300);
+}
+onAct('dr-size', btn => { DR.sizeSheet = { id: btn.dataset.id, picks: [], text: '' }; drSizeSheet(); });
+onAct('dr-size-pick', btn => {
+  const z = DR.sizeSheet;
+  if (!z) return;
+  const i = z.picks.indexOf(btn.dataset.k);
+  if (i < 0) z.picks.push(btn.dataset.k); else z.picks.splice(i, 1);
+  btn.setAttribute('aria-pressed', String(i < 0));   // change the chip in place (the typed note stays)
+  const b = $('#ph-sheet [data-act="dr-size-send"]');
+  if (b) b.disabled = !drSizeNote();
+});
+onInp('dr-size-note', el => {
+  if (!DR.sizeSheet) return;
+  DR.sizeSheet.text = el.value;
+  const b = $('#ph-sheet [data-act="dr-size-send"]');
+  if (b) b.disabled = !drSizeNote();
+});
+onAct('dr-size-send', () => {
+  const z = DR.sizeSheet, note = drSizeNote();
+  if (!z || !note) return;
+  DR.sizeSheet = null;
+  closeOverlays();
+  DR.size[z.id] = { note: note, state: 'failed' };   // drSizeSend sends it ('failed' = not sent yet)
+  drSizeSend(z.id);
+});
+// Send (or send again) the size report of one job
+async function drSizeSend(id) {
+  const s = DR.size[id];
+  if (!s || s.state === 'sending') return;
+  s.state = 'sending';
+  drWipSave();
+  drShow('keep');
+  try {
+    await api('order.sizeIssue', { order_id: Number(id), note: s.note });
+    if (DR.size[id] === s) delete DR.size[id];
+    toast(TX.office_informed);
+  } catch (e) {
+    if (guCode(e) === 'AUTH') return;
+    if (DR.size[id] !== s) return;
+    const c = guCode(e);
+    // The job is cancelled / not ours / the note was refused: sending again will not help
+    if (c === 'BAD_STATUS' || c === 'FORBIDDEN' || c === 'BAD_INPUT' || c === 'NOT_FOUND') { delete DR.size[id]; toast(guErr(e)); }
+    else { s.state = 'failed'; if (!WA.chatOpen()) toast(guErr(e)); }
+  }
+  drWipSave();
+  if (App.session) drShow('keep');
+}
 
 // "હું નીકળ્યો, ગ્રાહકને જણાવો": the server works out the arrival time and tells the next customer
 onAct('dr-leave', btn => {
@@ -1194,6 +1440,11 @@ const drDeHead = () => '<div class="dr-de-hd">' + WA.avatar(TX.day_end, { small:
 // true when every listed job has both a reason and a new date
 const drDeReady = () => !!(DR.sheet && DR.sheet.items.length && DR.sheet.items.every(it => it.reason && it.new_date));
 
+/* The sheet: one block per unfinished job, with BIG CHIPS (no dropdowns, changed 2026-10-08):
+   - reason chips: customer not home, customer asked for later, time ran out, tank not emptied,
+     traffic, earlier job took longer, vehicle problem, some other reason
+   - date chips: tomorrow, the day after, "+ another date" (opens a date box)
+   Nothing is pre-selected. The save button works only when every job has both. */
 function drDayEndSheet() {
   const sh = DR.sheet, t = todayIso();
   let h = drDeHead();
@@ -1201,29 +1452,41 @@ function drDayEndSheet() {
     // Nothing left to move: the honest count of the day (not always "well done")
     h += drSummaryHtml() + '<button class="btn lg" data-act="close">' + TX.close + '</button>';
   } else {
-    // Nothing is pre-filled: the driver chooses a reason and a date for every job
-    const opt = (v, label, on) => '<option value="' + v + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
+    const chip = (act, i, v, label, on) => '<button type="button" data-act="' + act + '" data-i="' + i + '" data-v="' + esc(v) + '" aria-pressed="' + !!on + '">' + esc(label) + '</button>';
     h += '<div class="sub">' + tr('આ કામ આજે પૂર્ણ થયા નથી. દરેક કામ માટે કારણ અને નવી તારીખ પસંદ કરો. ગ્રાહકને મેસેજ જશે.',
       'These jobs were not finished today. Pick a reason and a new date for each job. The customer will get a message.') + '</div>' +
       sh.items.map((it, i) => {
         const o = drOrder(it.order_id) || {};
+        const d1 = addD(t, 1), d2 = addD(t, 2);
+        const other = it.new_date && it.new_date !== d1 && it.new_date !== d2;   // a date picked in the date box
         return '<div class="dr-de">' + WA.avatar(o.client_name, { small: true }) +
           '<div class="dr-de-mid"><b>' + esc(o.client_name) + '</b><span class="sub">' + timeOf(o) + ' · ' + esc(areaT(o.area)) + '</span>' +
           // No WhatsApp: this customer gets no message, the driver calls with the new date
           (drNoWa(o) ? '<span>' + drNoWaBadge() + '</span>' : '') +
-          '<div class="dr-de-sel"><select class="fsel" data-chg="dr-de-r" data-i="' + i + '" aria-label="' + esc(tr('કારણ', 'Reason')) + '">' +
-          opt('', tr('— કારણ પસંદ કરો —', '— Pick a reason —'), !it.reason) +
-          DR_REASONS.map(r => opt(r, lbl(REASON[r]), it.reason === r)).join('') + '</select>' +
-          '<select class="fsel" data-chg="dr-de-d" data-i="' + i + '" aria-label="' + esc(tr('નવી તારીખ', 'New date')) + '">' +
-          opt('', tr('— નવી તારીખ પસંદ કરો —', '— Pick a new date —'), !it.new_date) +
-          [1, 2, 3].map(n => { const d = addD(t, n); return opt(d, labT(d), it.new_date === d); }).join('') +
-          '</select></div></div></div>';
+          '<span class="dr-lbl">' + tr('કારણ', 'Reason') + '</span>' +
+          '<div class="wa-chips dr-de-ch" role="group" aria-label="' + esc(tr('કારણ', 'Reason')) + '">' +
+          DR_DE_REASONS.map(r => chip('dr-de-r', i, r, lbl(REASON[r]), it.reason === r)).join('') + '</div>' +
+          '<span class="dr-lbl">' + tr('નવી તારીખ', 'New date') + '</span>' +
+          '<div class="wa-chips dr-de-ch" role="group" aria-label="' + esc(tr('નવી તારીખ', 'New date')) + '">' +
+          chip('dr-de-d', i, d1, tr('કાલે', 'Tomorrow') + ' · ' + labT(d1), it.new_date === d1) +
+          chip('dr-de-d', i, d2, tr('પરમ દિવસે', 'Day after') + ' · ' + labT(d2), it.new_date === d2) +
+          chip('dr-de-pick', i, '', other ? labT(it.new_date) : tr('+ બીજી તારીખ', '+ Another date'), other) + '</div>' +
+          (it.pick || other ? '<input type="date" class="fsel dr-de-date" data-chg="dr-de-date" data-i="' + i + '" min="' + d1 + '" value="' + esc(other ? it.new_date : '') +
+            '" aria-label="' + esc(tr('નવી તારીખ પસંદ કરો', 'Pick a new date')) + '">' : '') +
+          '</div></div>';
       }).join('') +
       '<div class="dr-de-hint"' + (drDeReady() ? ' hidden' : '') + '>' + tr('દરેક કામ માટે કારણ અને તારીખ પસંદ કરો.', 'Pick a reason and a date for every job.') + '</div>' +
       '<button class="btn pri lg" data-act="dr-dayend-send"' + (drDeReady() ? '' : ' disabled') + '>' + tr('ગ્રાહકોને મેસેજ મોકલો અને દિવસ પૂર્ણ કરો', 'Message the customers and end the day') + '</button>' +
       '<button class="btn lg" data-act="close">' + TX.close + '</button>';
   }
   openSheet(h);
+}
+// Draw the sheet again after a chip tap, keeping its scroll position
+function drDeRedraw() {
+  const sc = $('#ph-sheet .sheet'), top = sc ? sc.scrollTop : 0;
+  drDayEndSheet();
+  const sc2 = $('#ph-sheet .sheet');
+  if (sc2) sc2.scrollTop = top;
 }
 // After each choice: switch the save button on only when everything is chosen
 function drDeCheck() {
@@ -1253,14 +1516,30 @@ onAct('dr-dayend', btn => {
   DR.sheet = { type: 'dayend', items: pend.map(o => ({ order_id: o.order_id, reason: '', new_date: '' })) };
   drDayEndSheet();
 });
-onChg('dr-de-r', s => { if (DR.sheet) { DR.sheet.items[+s.dataset.i].reason = s.value; drDeCheck(); } });
-onChg('dr-de-d', s => { if (DR.sheet) { DR.sheet.items[+s.dataset.i].new_date = s.value; drDeCheck(); } });
+// Chip taps: reason, tomorrow / day after, "+ another date" (shows the date box), the date box
+const drDeItem = el => DR.sheet && DR.sheet.items[+el.dataset.i];
+onAct('dr-de-r', b => { const it = drDeItem(b); if (it) { it.reason = b.dataset.v; drDeRedraw(); } });
+onAct('dr-de-d', b => { const it = drDeItem(b); if (it) { it.new_date = b.dataset.v; it.pick = false; drDeRedraw(); } });
+onAct('dr-de-pick', b => {
+  const it = drDeItem(b);
+  if (!it) return;
+  it.pick = true;
+  drDeRedraw();
+  const box = $('#ph-sheet .dr-de-date[data-i="' + b.dataset.i + '"]');
+  if (box) { box.focus(); try { if (box.showPicker) box.showPicker(); } catch (e) { /* some browsers need a real tap */ } }
+});
+onChg('dr-de-date', el => {
+  const it = drDeItem(el);
+  if (!it) return;
+  it.new_date = el.value > todayIso() ? el.value : '';   // only a later day
+  drDeRedraw();
+});
 
 // Save: the jobs move on screen at once, then the 5-second "રદ કરો" window, then the server.
 onAct('dr-dayend-send', () => {
   const sh = DR.sheet;
   if (!sh || !drDeReady() || DR.busy) return;
-  const items = sh.items.map(it => Object.assign({}, it));
+  const items = sh.items.map(it => ({ order_id: it.order_id, reason: it.reason, new_date: it.new_date }));
   DR.sheet = null; closeOverlays();
   const mv = DR.moving = { items: items, state: 'wait' };
   drShow('force');
@@ -1283,6 +1562,10 @@ async function drDayEndPost(mv) {
     const sent = ((r && r.moved) || 0) - calls;
     toast((sent > 0 ? tr(sent + ' ગ્રાહકોને WhatsApp પર જાણ કરી ✓', sent + ' customer(s) told on WhatsApp ✓') : TX.saved_ok) +
       (calls ? tr(' · ' + calls + ' ગ્રાહકને ફોન કરો', ' · call ' + calls + ' customer(s)') : ''));
+    // Customers without WhatsApp were told nothing: show the day's summary with a call button each
+    if (calls && App.session && !WA.chatOpen() && $('#ph-sheet').hidden) {
+      openSheet(drDeHead() + drSummaryHtml() + '<button class="btn lg" data-act="close">' + TX.close + '</button>');
+    }
 
   } catch (e) {
     DR.busy = false;

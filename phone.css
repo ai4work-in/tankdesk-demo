@@ -51,7 +51,7 @@ a.lnkbtn{display:grid;place-items:center;text-decoration:none;text-align:center;
 .wa-chips.co-areas{flex:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding:10px 12px 8px;scrollbar-width:none;
   -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
 .wa-chips.co-areas::-webkit-scrollbar{display:none}
-.wa-chips.co-areas button{flex:none;white-space:nowrap;min-height:40px}
+.wa-chips.co-areas button{flex:none;white-space:nowrap;min-height:44px}
 /* Picked area: filled colour, bold, with a tick in front */
 .wa-chips.co-areas button[aria-pressed="true"]{font-weight:700}
 .wa-chips.co-areas button[aria-pressed="true"]::before{content:"✓ "}
@@ -67,15 +67,15 @@ a.lnkbtn{display:grid;place-items:center;text-decoration:none;text-align:center;
 .co-pay{background:var(--wall);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
 .wa-chips.co-modes{flex-wrap:nowrap;overflow-x:auto;padding:8px 10px 0;scrollbar-width:none}
 .wa-chips.co-modes::-webkit-scrollbar{display:none}
-.wa-chips.co-modes button{flex:none;white-space:nowrap}
+.wa-chips.co-modes button{flex:none;white-space:nowrap;min-height:48px;padding:8px 16px;font-size:15px}   /* 48 px: easy to hit (2026-10-08) */
 /* The message box holds two lines: amount (with "પૂરી રકમ") and an optional note */
 .wa-compose .box-in.co-box{flex-direction:column;align-items:stretch;gap:0;border-radius:22px;padding:2px 8px 2px 14px}
 .co-amt-line{display:flex;align-items:center;gap:6px;min-width:0}
 .co-rs{font-weight:700;font-size:18px;color:var(--muted)}
 .wa-compose #co-amt{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
 .co-full{flex:none;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:16px;
-  font:inherit;font-size:13px;font-weight:700;padding:5px 10px;cursor:pointer}
-.wa-compose .co-note-in{font-size:14px;padding:6px 0 8px;border-top:1px solid var(--line)}
+  font:inherit;font-size:14px;font-weight:700;padding:5px 14px;cursor:pointer;min-height:48px;border-radius:24px}
+.wa-compose .co-note-in{font-size:15px;padding:6px 0;min-height:48px;border-top:1px solid var(--line)}
 .co-hint{padding:0 14px 8px;font-size:13px;color:var(--muted)}
 /* Amount more than the balance: red, normal size, right under the box */
 .co-hint.co-err{color:var(--bad);font-size:15px;font-weight:700}
@@ -292,6 +292,42 @@ a.lnkbtn{display:grid;place-items:center;text-decoration:none;text-align:center;
 /* Collector: payment chat and confirm sheet for a client without WhatsApp */
 .co-nowa{margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:14.5px;line-height:1.45}
 
+/* ==========================================================================
+   COLLECTOR (usability round 2026-10-08): one row per client, search, Call on
+   each row, 48 px buttons, job list in the chat, cash to give the office.
+   Used only by collector.js.
+   ========================================================================== */
+/* Search box above the list */
+.co-search{flex:none;padding:10px 12px 0}
+.co-search input{width:100%;min-height:48px;border:1px solid var(--line);border-radius:24px;background:var(--surface);color:var(--fg);
+  font:inherit;font-size:16px;padding:8px 16px}
+.co-search input:focus{outline:2px solid var(--accent);outline-offset:1px}
+/* One list row = the chat row + a round Call button on the right */
+.co-rw{display:flex;align-items:center}
+.co-rw[hidden],.co-grp[hidden]{display:none}
+.co-rw .wa-row{flex:1;min-width:0}
+.co-call{flex:none;display:grid;place-items:center;width:48px;height:48px;margin-right:8px;border-radius:50%;
+  color:var(--accent);background:var(--accent-soft);text-decoration:none}
+.co-call svg{width:22px;height:22px}
+.co-njobs{color:var(--fg)}
+/* Back and Call in the chat header: 48 x 48 */
+#ph-chat .wa-ib.co-ib{width:48px;height:48px}
+/* The unpaid jobs in a bubble or in the confirm sheet: date left, amount right */
+.co-jobs{list-style:none;margin:6px 0 2px;padding:0;display:flex;flex-direction:column;gap:2px}
+.co-jobs li{display:flex;justify-content:space-between;gap:12px;font-size:15px;border-top:1px dashed var(--line);padding-top:3px}
+.co-jobs li:first-child{border-top:0}
+.co-jobs b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.co-jobs small{font-weight:400;color:var(--muted)}
+.co-cf-split{margin:4px 0}
+/* Today's collection: the cash to hand over, in one big line */
+.co-cash{flex:none;padding:12px 14px;font-size:17px;font-weight:700;background:var(--ok-bg);color:var(--ok);border-bottom:1px solid var(--line)}
+.co-cash b{font-size:22px;font-variant-numeric:tabular-nums}
+/* A payment the office cancelled: crossed out, not counted */
+.co-cx .wa-row .tm{text-decoration:line-through;color:var(--muted)}
+.co-cxt{color:var(--bad)}
+/* Weak network: "Retrying…" in place of the message box */
+.co-pay.co-retrying{color:var(--bad);font-weight:700;font-size:14px}
+
 /* ---------- log book at "work done" (driver, added 2026-10-08) ----------
    "કોણે કામ કર્યું?" worker chips and the "ટાંકીનું માપ" tank editor. Big targets, big numbers. */
 .bub.dr-log{box-shadow:inset 3px 0 0 var(--accent),0 1px .5px rgba(0,0,0,.13)}
@@ -342,3 +378,84 @@ a.lnkbtn{display:grid;place-items:center;text-decoration:none;text-align:center;
 .sv-note textarea{width:100%;min-height:64px;padding:8px 10px;border:2px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);
   font:inherit;font-size:16px;resize:vertical}
 .sv-note textarea:focus{outline:none;border-color:var(--accent)}
+
+/* ---------- tank editor, usability round 8 Oct 2026 (SUPERVISOR agent; tank-editor.js) ----------
+   Pictures on Overhead / Underground, metres / feet, the amber "is this size right?" box,
+   the red border on a tank with a problem, "Remove tank 3? Yes / No", partition link. */
+.tk-ic{width:20px;height:20px;flex:none;vertical-align:-4px}
+.tk-type button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.tk-unit{grid-template-columns:1fr 1fr}
+.tk-unit button{min-height:40px;font-size:14px}
+.tk-hint{display:flex;align-items:center;gap:6px}
+.dr-tk.tk-bad{border:2px solid var(--bad);background:var(--bad-bg)}
+.dr-tk.tk-warnb{border:2px solid var(--warn)}
+.tk-warn{margin-top:8px;font-size:15px;line-height:1.35}
+.tk-warn-b{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.tk-warn-b button{min-height:48px;padding:0 14px;border:2px solid var(--warn);border-radius:24px;background:var(--surface);color:var(--fg);font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.dr-tk-x{min-height:48px;min-width:48px}
+.tk-ask{flex-wrap:wrap;color:var(--bad)}
+.tk-ask span{display:flex;gap:8px}
+.tk-ask button{min-height:48px;min-width:64px;padding:0 14px;border-radius:24px;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.tk-ask .tk-yes{border:0;background:var(--bad);color:#fff}
+.tk-ask .tk-no{border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.tk-part{font-weight:600;color:var(--muted);font-size:14px}
+.tk-link{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-top:6px;padding:0 4px;border:0;background:none;color:var(--accent);font:inherit;font-size:14px;font-weight:600;text-decoration:underline;cursor:pointer;text-align:left}
+.tk-rest{margin:4px 0}
+.dr-tk-in span{font-size:14px}
+/* the admin form is compact on a computer; on a phone the tap targets stay big */
+.tk-en .tk-unit button{min-height:30px;font-size:13px}
+.tk-en .tk-warn-b button,.tk-en .tk-ask button{min-height:34px;font-size:13.5px}
+.tk-en .tk-link{min-height:30px;font-size:13px}
+@media (max-width:640px){.tk-en .dr-tk-x,.tk-en .tk-ask button,.tk-en .tk-warn-b button{min-height:44px}}
+/* supervisor: the note just sent, inside the outgoing bubble */
+.sv-mynote{margin-top:6px;white-space:pre-line}
+
+/* ==========================================================================
+   DRIVER: usability round (added 2026-10-08, driver.js). Driver-only classes.
+   ========================================================================== */
+/* Tank sizes, read-only, near the top of the job, and the "માપ અલગ છે" button */
+.bub.dr-tks{box-shadow:inset 3px 0 0 var(--muted),0 1px .5px rgba(0,0,0,.13)}
+.dr-tkro{margin-top:4px;font-size:15px;line-height:1.5}
+.dr-tknone{margin-top:2px;color:var(--muted);font-size:14px}
+.dr-sizebtn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:8px;min-height:48px;border:2px solid var(--line);
+  border-radius:24px;background:var(--surface);color:var(--fg);font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.dr-sizebtn svg{width:18px;height:18px;flex:none}
+.dr-sizeq{margin-top:8px;padding:6px 10px;border-radius:10px;background:var(--surface2);font-size:14px;font-weight:600}
+.dr-sizeq.bad{background:var(--bad-bg);color:var(--bad)}
+.wa-chips.dr-szc button{min-height:48px;padding:8px 14px;font-size:15px}
+/* The checklist flashes when "tick the work above first ↑" is tapped */
+.bub.dr-flash{animation:drFlash 1.2s ease-out}
+@keyframes drFlash{0%,40%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.bub.dr-flash{animation:none;box-shadow:0 0 0 3px var(--accent)}}
+/* Bottom buttons: "tick the work above first ↑" (not greyed out: it is tappable), and outline buttons */
+.dr-on #ph-chat .wa-qr button.dr-dim{background:var(--surface2);color:var(--muted);border:2px dashed var(--line)}
+.dr-on #ph-chat .wa-qr button.dr-ol{background:var(--surface);color:var(--fg);border:2px solid var(--fg)}
+/* "મોકલાયું નહીં · ફરી મોકલો": a red bar fixed above the bottom buttons */
+.dr-failbar{flex:none;padding:8px 10px 0;background:var(--wall);border-top:1px solid var(--line)}
+.dr-failbar+.wa-qr{border-top:0}
+.dr-failbar button{display:block;width:100%;min-height:52px;border:0;border-radius:26px;background:var(--bad);color:#fff;
+  font:inherit;font-size:16.5px;font-weight:700;cursor:pointer}
+.dr-failtxt{display:block;margin-top:4px;color:var(--bad);font-size:14px;font-weight:700}
+/* Late picker without WhatsApp: "save" is an outline button, Call stays filled green */
+.dr-send.dr-send-ol,.dr-on .dr-send.dr-send-ol{background:var(--surface);color:var(--accent);border:2px solid var(--accent)}
+.dr-on .dr-send.dr-send-ol:disabled{background:var(--surface2);color:var(--muted);border-color:var(--line)}
+/* End of day: big chips instead of dropdowns, and the date box */
+.wa-chips.dr-de-ch button{min-height:48px;padding:8px 12px;font-size:15px}
+.dr-de-date{margin-top:6px;width:100%;min-height:48px;font-size:16px}
+.dr-de-mid .dr-lbl{margin:6px 0 2px}
+/* Day summary: "આ ગ્રાહકોને ફોન કરો" with a call button each */
+.dr-calls{margin:4px 12px 8px;padding:10px 12px;border-radius:12px;background:var(--warn-bg);color:var(--fg);display:flex;flex-direction:column;gap:8px}
+.dr-calls>b{color:var(--warn);font-size:16px}
+.dr-calls-r{display:flex;flex-direction:column;gap:2px}
+.dr-calls-r .sub{display:block;font-size:14px}
+.sheet .dr-sum,.sheet .dr-calls{margin-left:0;margin-right:0}
+/* Logout question inside the menu */
+.dr-lo{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px;margin:6px 0}
+.dr-lo b{font-size:16px}
+/* Sun-readable: no driver subline under 14px */
+.dr-on .dr-lbl,.dr-on .dr-nowa,.dr-on .dr-day,.dr-on .dr-amc,.dr-on .dr-hb span,.dr-on .dr-undo-t{font-size:14px}
+.dr-on #ph-chat .bub .sub,.dr-on #ph-chat .wa-sys,.dr-on #ph-chat .wa-day,.dr-on .bub .who,.dr-on .bub .meta,.dr-on .wa-row .sub{font-size:14px}
+.dr-on .dr-day,.dr-on .dr-amc{line-height:22px}
+.dr-lo .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+/* (driver) header second line, section headings and the job card details: 14px too */
+.dr-on .wa-head .t span,.dr-on .wa-sec,.dr-on #ph-chat .bub .kv{font-size:14px}

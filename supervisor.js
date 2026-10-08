@@ -30,6 +30,24 @@ const SV = {
 };
 const svKey = id => 'sv:' + id;   // the tank editor of one survey
 
+/* The note being typed is kept on the phone too (like the tanks, tank-editor.js save:true):
+   the phone may close the browser after a call or the map. Cleared after a successful send. */
+const SV_NOTE = 'tankdesk-svnote:';
+function svNoteKeep(id, text) {
+  try { if (text) localStorage.setItem(SV_NOTE + id, text); else localStorage.removeItem(SV_NOTE + id); } catch (e) { /* private mode: kept until the page closes */ }
+}
+function svNoteKept(id) { try { return localStorage.getItem(SV_NOTE + id) || ''; } catch (e) { return ''; } }
+// The supervisor's own lines in the order notes ("Supervisor: ..." added by survey.submit) and the office's lines
+const SV_NL = String.fromCharCode(10);   // a line break
+const svMyNotes = notes => String(notes || '').split(SV_NL).filter(l => /^Supervisor: /.test(l)).map(l => l.replace(/^Supervisor: /, '')).join(SV_NL);
+const svOfficeNotes = notes => String(notes || '').split(SV_NL).filter(l => !/^Supervisor: /.test(l)).join(SV_NL).trim();
+// A survey that is measured (in the fresh list): nothing typed for it needs keeping any more
+function svForgetDone() {
+  (SV.orders || []).forEach(o => {
+    if (o.status === 'done' && !SV.pending[o.order_id]) { TankEd.clear(svKey(o.order_id)); svNoteKeep(o.order_id, ''); }
+  });
+}
+
 // The surveys as the supervisor should see them: a measurement just sent shows as sent at once
 function svList() {
   return (SV.orders || []).map(o => {
@@ -51,7 +69,7 @@ async function svLoad() {
       if (!App.session || App.session.token !== tok) return;
       SV.orders = data.orders || [];
       SV.token = tok;
-      if (fresh) svClearSent();
+      if (fresh) { svClearSent(); svForgetDone(); }
       svShow();
     });
     SV.error = '';
@@ -129,7 +147,7 @@ registerScreen('supervisor', 'todo', el => {
   if (!svReady(el)) return;
   const L = svList().filter(o => o.status !== 'done').sort(byWhen);
   setTabCount('todo', L.length);
-  let h = WA.sec(labT(todayIso()) + ' · ' + tr(L.length + ' સર્વે બાકી', L.length + (L.length === 1 ? ' survey' : ' surveys') + ' to do'));
+  let h = WA.sec(tr(L.length + ' સર્વે બાકી', L.length + (L.length === 1 ? ' survey' : ' surveys') + ' to do'));
   if (SV.error) h += '<div class="dr-pad"><div class="box bad">' + esc(SV.error) + '</div></div>';
   h += L.length ? '<div class="wa-list">' + L.map(o => svRow(o, false)).join('') + '</div>'
     : '<div class="dr-pad"><div class="empty">' + tr('હમણાં કોઈ સર્વે બાકી નથી.', 'No surveys to do right now.') + '</div></div>';
@@ -166,7 +184,9 @@ function svChatParts(o) {
       kv(TX.type, esc(typeT(o.client_type))) +
       kv(TX.phone, '<a href="' + telUrl(o.phone) + '">' + esc(phoneText(o.phone)) + '</a>') + '</dl>' +
       '<div class="sub">' + tr('દરેક ટાંકી માપો. ઓફિસ તેના પરથી ભાવ નક્કી કરીને ગ્રાહકને મોકલશે.', 'Measure every tank. The office will work out the price and send it to the customer.') + '</div>', '', { who: TX.office });
-  if (o.notes) m += WA.bubble('in', '<b>' + TX.note + ':</b> ' + esc(o.notes), '', { who: TX.office, cls: 'warn' });
+  // The office's note (the supervisor's own note shows in the outgoing bubble below, not here)
+  const offNote = svOfficeNotes(o.notes), myNote = p && p.notes ? p.notes : svMyNotes(o.notes);
+  if (offNote) m += WA.bubble('in', '<b>' + TX.note + ':</b> ' + esc(offNote), '', { who: TX.office, cls: 'warn' });
 
   const tanksHtml = list => (list || []).map(t => '<span class="dr-tkline">' + esc(tankTextT(t)) + '</span>').join('') +
     ((list || []).length > 1 ? '<span class="dr-tkline"><b>' + tr('કુલ ', 'Total ') + litresText(tanksTotal(list)) + ' ' + TX.litres + '</b></span>' : '');
@@ -175,21 +195,22 @@ function svChatParts(o) {
     // Sent (or being sent): the measurements as an outgoing message
     const sending = svBusy(id);
     const b = WA.bubble('out', '<b>' + TX.tank_sizes + '</b><div class="dr-crewl">' + tanksHtml(o.tanks) + '</div>' +
-      (p && p.notes ? '<div class="sub">' + TX.note + ': ' + esc(p.notes) + '</div>' : ''), p ? fm(p.at) : '', { ticks: 2 });
+      (myNote ? '<div class="sv-mynote"><b>' + TX.note + ':</b> ' + esc(myNote) + '</div>' : ''), p ? fm(p.at) : '', { ticks: 2 });
     m += sending ? b.replace(WA.icons.ticks, '<i class="dr-clock" aria-label="' + esc(TX.sending) + '">' + ICON_CLOCK + '</i>') : b;
     if (!sending) m += WA.bubble('in', tr('માપ મળી ગયું ✓<br>ઓફિસ ભાવ નક્કી કરીને ગ્રાહકને મોકલશે.', 'Sizes received ✓<br>The office will work out the price and send it to the customer.'), '', { who: TX.office });
     bottom = WA.quick([{ label: TX.back_to_list, act: 'sv-back', cls: 'full', disabled: sending }]);
   } else {
     if (p && p.state === 'failed') {
       m += WA.bubble('out', '<b>' + TX.tank_sizes + '</b><div class="dr-crewl">' + tanksHtml(p.tanks) + '</div>' +
+        (p.notes ? '<div class="sv-mynote"><b>' + TX.note + ':</b> ' + esc(p.notes) + '</div>' : '') +
         '<button class="dr-retry" data-act="sv-retry" data-id="' + id + '">⚠ ' + TX.not_sent_retry + '</button>', fm(p.at), { cls: 'bad dr-fail' });
     }
     m += WA.bubble('in', '<b class="dr-tk-t">' + TX.tank_sizes + '</b>' +
       '<div class="sub">' + tr('દરેક ટાંકી: ઉપરની કે અંડરગ્રાઉન્ડ, સિમેન્ટ કે પ્લાસ્ટિક, પછી લિટર અથવા માપ (મીટર).',
         'Each tank: overhead or underground, cement or plastic, then litres or size (metres).') + '</div>' +
-      TankEd.html(svKey(id), o.tanks, { lang: uiLang() }) +
+      TankEd.html(svKey(id), o.tanks, { lang: uiLang(), save: true }) +   // save: typed sizes stay on the phone
       '<label class="sv-note"><span class="dr-lbl">' + tr('નોંધ (જરૂરી હોય તો)', 'Note (if needed)') + '</span>' +
-      '<textarea rows="2" data-inp="sv-note" data-id="' + id + '" placeholder="' + esc(tr('જેમ કે: ટાંકી સુધી જવા સીડી જોઈએ', 'e.g. a ladder is needed to reach the tank')) + '">' + esc(SV.notes[id] || '') + '</textarea></label>',
+      '<textarea rows="2" data-inp="sv-note" data-id="' + id + '" placeholder="' + esc(tr('જેમ કે: ટાંકી સુધી જવા સીડી જોઈએ', 'e.g. a ladder is needed to reach the tank')) + '">' + esc(svNoteText(id)) + '</textarea></label>',
       '', { who: TX.office, cls: 'dr-log' });
     bottom = WA.quick([{ label: TX.send_measure, act: 'sv-send', data: { id: id }, cls: 'pri full', icon: 'send' }]);
   }
@@ -223,16 +244,19 @@ onAct('sv-open', btn => {
 });
 onAct('sv-back', () => { svCloseChat(); svShow(); });
 window.addEventListener('popstate', () => { if (!WA.chatOpen() && SV.chat != null) { drFlush(); SV.chat = null; SV.chatHtml = ''; } });
-onInp('sv-note', el => { SV.notes[el.dataset.id] = el.value; });
+onInp('sv-note', el => { SV.notes[el.dataset.id] = el.value; svNoteKeep(el.dataset.id, el.value); });
+// The note being typed: this session's, else the one kept on the phone
+const svNoteText = id => (SV.notes[id] !== undefined ? SV.notes[id] : svNoteKept(id));
 
 /* ---------- [માપ મોકલો]: send the measurements (5-second undo, then survey.submit) ---------- */
 onAct('sv-send', btn => {
   const id = btn.dataset.id, o = svOrder(id);
   if (!o || svBusy(id)) return;
   const tk = TankEd.out(svKey(id));
-  if (tk.error) { TankEd.setError(svKey(id), tk.error); toast(tk.error); return; }
-  if (!tk.tanks.length) { const e = tr('ઓછામાં ઓછી એક ટાંકીનું માપ લખો.', 'Enter the size of at least one tank.'); TankEd.setError(svKey(id), e); toast(e); return; }
-  const p = SV.pending[id] = { state: 'wait', at: nowMin(), tanks: tk.tanks, notes: String(SV.notes[id] || '').trim() };
+  // A problem shows inline at the tank (red border, scrolled into view): no toast on top of it
+  if (tk.error) { TankEd.setError(svKey(id), tk.error); return; }
+  if (!tk.tanks.length) { TankEd.setError(svKey(id), tr('ઓછામાં ઓછી એક ટાંકીનું માપ લખો.', 'Enter the size of at least one tank.')); return; }
+  const p = SV.pending[id] = { state: 'wait', at: nowMin(), tanks: tk.tanks, notes: String(svNoteText(id) || '').trim() };
   svShow('force');
   svShowChat(id, 'force');
   // Nothing goes to a customer: the undo bar says "will be saved"
@@ -253,8 +277,9 @@ async function svPost(id, p) {
     await api('survey.submit', { order_id: Number(id), tanks: p.tanks, notes: p.notes });
     if (SV.pending[id] !== p) return;
     p.state = 'sent';
-    TankEd.reset(svKey(id));
+    TankEd.clear(svKey(id));   // sent: the copy kept on the phone is not needed any more
     delete SV.notes[id];
+    svNoteKeep(id, '');
     if (!WA.chatOpen()) toast(tr('માપ ઓફિસને મોકલ્યું ✓', 'Sizes sent to the office ✓'));
   } catch (e) {
     if (guCode(e) === 'AUTH' || SV.pending[id] !== p) return;

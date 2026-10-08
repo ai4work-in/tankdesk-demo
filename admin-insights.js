@@ -172,7 +172,9 @@
     half: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 7h14M5 12h9M5 17h5"/></svg>',
     cross: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 7l10 10M17 7 7 17"/></svg>',
     cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
-    chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>'
+    chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+    // a ruler: the driver says the tank sizes are different (size_issue)
+    ruler: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16 16 3l5 5L8 21z"/><path d="M7 12l2 2M10 9l2 2M13 6l2 2"/></svg>'
   };
 
   /* ======================================================================
@@ -326,7 +328,7 @@
   const SEV_WORD = { bad: 'Act now', warn: 'Check', ok: 'Info', info: 'Info' };
   const SEV_COLOR = { bad: 'var(--bad)', warn: 'var(--warn)', ok: 'var(--accent)', info: 'var(--accent)' };
   function alertIcon(type) {
-    return type === 'delay' || type === 'overtime' ? ICON.clock : type === 'partial' ? ICON.half : type === 'dispute' || type === 'quote_no' ? ICON.cross
+    return type === 'delay' || type === 'overtime' ? ICON.clock : type === 'partial' ? ICON.half : type === 'size_issue' ? ICON.ruler : type === 'dispute' || type === 'quote_no' ? ICON.cross
       : type === 'call' ? WA.icons.call   // 'call' = a client without WhatsApp must be phoned
       : type === 'price_diff' ? WA.icons.pay   // measured tanks differ from the locked (quoted) price
       : type === 'quote_yes' ? ICON.chat : ICON.alert;
@@ -339,9 +341,29 @@
         WA.avatar('', { small: true, color: SEV_COLOR[sev], icon: alertIcon(a.type) }) +
         '<div class="mid"><div class="l1"><span class="tx">' + esc(a.text) + '</span><time>' + esc(feedTime(a.created_at)) + '</time></div>' +
         '<div class="l2"><span class="sub">' + SEV_WORD[sev] + (a.order_id ? ' · order #' + esc(a.order_id) : '') + '</span>' +
-        (a.seen === false ? '<span class="bd bad">new</span>' : '') + '</div></div></div>';
+        (a.seen === false ? '<span class="bd bad">new</span>' : '') + '</div>' + alertActs(a) + '</div></div>';
     }).join('') + '</div>';
   }
+
+  /* Buttons under an alert about an order (usability round, 2026-10-08), so the office can act
+     at once: Open order, Call customer (the number shows; a tap calls), and for a delay
+     "Reschedule", for a size or price problem "Edit". alerts.list adds the order's client,
+     phone, date and status to each alert (orders.gs withAlertOrder_). */
+  const ALERT_FIX = { delay: ['move', 'Reschedule'], size_issue: ['edit', 'Edit order'], price_diff: ['edit', 'Edit order'] };
+  function alertActs(a) {
+    if (!a.order_id) return '';
+    const id = esc(a.order_id), d = esc(a.sched_date || '');
+    const open = a.order_status !== 'done' && a.order_status !== 'cancelled';
+    const fix = ALERT_FIX[a.type];
+    return '<div class="ins-fa">' +
+      '<button class="btn sm" data-act="ins-al-open" data-id="' + id + '" data-d="' + d + '">Open order</button>' +
+      (a.phone ? '<a class="btn sm ins-fcall" href="tel:+' + esc(a.phone) + '" aria-label="Call ' + esc(a.client_name || 'customer') + ', ' + esc(phoneText(a.phone)) + '">' +
+        WA.icons.call + '<span>Call ' + esc(phoneText(a.phone)) + '</span></a>' : '') +
+      (fix && (open || fix[0] === 'edit') ? '<button class="btn sm pri" data-act="ins-al-fix" data-k="' + fix[0] + '" data-id="' + id + '" data-d="' + d + '">' + fix[1] + '</button>' : '') +
+      '</div>';
+  }
+  onAct('ins-al-open', el => { if (App.openOrder) App.openOrder(el.dataset.id, el.dataset.d); });
+  onAct('ins-al-fix', el => { if (App.orderAction) App.orderAction(el.dataset.k, el.dataset.id, el.dataset.d, el); });
 
   /* One row per team: the live status line (same words as Team routes, from
      App.teamLiveStatus in admin-orders.js), "1 of 3 done" and overtime.
@@ -502,6 +524,7 @@
     // A different client was on screen: show "Loading…" so old details never show
     if (pane.dataset.phone !== phone) {
       pane.dataset.phone = phone;
+      pane.classList.remove('ins-pinmin');   // a new client opens with the full card
       pane.innerHTML = '<div class="ins-intro"><p class="sub">Loading…</p></div>';
     }
     try {
@@ -533,16 +556,29 @@
         '<button class="ins-hbtn" data-act="ins-book" data-phone="' + esc(c.phone) + '" title="' + word('Book new order') + '">' + WA.icons.plus + '<span>' + word('Book new order') + '</span></button>'
     });
     S.clients.lastH = h;   // for redrawing only the card (AMC box)
+    const keepMin = pane.classList.contains('ins-pinmin') && pane.dataset.phone === c.phone;
     pane.innerHTML = head + pinnedCard(c, h) + '<div class="wa-msgs ins-msgs" id="ins-msgs">' + timeline(h) + '</div>';
     // Like a real chat: start at the newest message (the bottom)
     const m = $('#ins-msgs'); if (m) m.scrollTop = m.scrollHeight;
+    /* On a phone the card at the top takes most of the screen: once the history is
+       scrolled, it folds to one line (tap it to open it again). Styles: admin.css, ins-pinmin. */
+    pane.classList.toggle('ins-pinmin', keepMin);
+    if (m) {
+      const start = m.scrollTop;
+      m.addEventListener('scroll', () => { if (Math.abs(m.scrollTop - start) > 30) pane.classList.add('ins-pinmin'); }, { passive: true });
+    }
   }
+  onAct('ins-pin-open', () => { const p = $('#ins-cl-chat'); if (p) p.classList.remove('ins-pinmin'); });
 
   // Small card pinned at the top of the chat: totals, address, editable next visit
   function pinnedCard(c, h) {
     const remDays = Number(settings().reminder_days) || 20;
     const stat = (v, k, red) => '<div class="st"><b class="num' + (red ? ' ins-red' : '') + '">' + v + '</b><span>' + k + '</span></div>';
     return '<div class="ins-pin">' +
+      // the one-line version, shown on a phone once the history is scrolled (tap to open the card again)
+      '<button type="button" class="ins-pinline" data-act="ins-pin-open" aria-label="Show the client details">' +
+      esc(c.done) + '/' + esc(c.orders) + ' jobs done · ' + (c.balance > 0 ? '<b class="ins-red">' + inr(c.balance) + ' to collect</b>' : 'nothing to collect') +
+      (c.next_visit ? ' · next visit ' + esc(dShort(c.next_visit)) : '') + '<span class="ins-pinmore">Details ▾</span></button>' +
       '<div class="ins-stats">' +
       stat(esc(c.done) + '<small> / ' + esc(c.orders) + '</small>', 'jobs done') +
       stat(inr(c.billed), 'billed') +
@@ -623,9 +659,16 @@
     if (st.vp === null) { box.textContent = 'Working out the price of one visit from the saved tanks…'; return; }
     const n = Number($('#ins-amc-visits').value) || 1, dRaw = Number($('#ins-amc-disc').value) || 0, d = Math.min(50, Math.max(0, dRaw));
     const total = Math.round(st.vp * n * (1 - d / 100));
+    // The client's last bill next to it (usability round 2026-10-08): the saved tanks may be
+    // incomplete, so a big difference (more than 20%) is pointed out.
+    const lb = S.clients.lastH && S.clients.lastH.last_bill, last = lb ? Number(lb.amount) || 0 : 0;
+    const diff = last > 0 && st.vp > 0 ? Math.round(Math.abs(st.vp - last) / last * 100) : 0;
     box.innerHTML = 'One visit (cleaning, from the saved tanks): <b>' + inr(st.vp) + '</b> × ' + n + ' visit' + (n === 1 ? '' : 's') +
       (d ? ' − ' + d + '%' : '') + ' = <b>' + inr(total) + '</b>. Billed per visit (' + inr(Math.round(total / n)) + ' each).' +
-      (dRaw > 50 ? ' <span class="ins-red">Discount is at most 50%.</span>' : '');
+      (dRaw > 50 ? ' <span class="ins-red">Discount is at most 50%.</span>' : '') +
+      (last > 0 ? '<div class="ins-amclast">Last bill: <b>' + inr(last) + '</b> (' + esc(dateLab(lb.sched_date)) + ', order #' + esc(lb.order_id) + ')' +
+        (diff > 20 ? '<div class="box warn">The visit price from the saved tanks is ' + diff + '% ' + (st.vp < last ? 'lower' : 'higher') +
+          ' than the last bill. The saved tanks may be incomplete (add-ons are not in the AMC price). Check them before saving.</div>' : '') + '</div>' : '');
     if (!st.typed) $('#ins-amc-amt').value = total;
   }
   // Redraw only the card at the top of the client chat (the chat keeps its scroll position)
@@ -694,7 +737,11 @@
     // order: 0, message: 1, payment: 2, alert: 3 (when two things have the same time, this is the order)
     h.orders.forEach(o => ev.push({ ts: o.sched_date + 'T' + (o.sched_time || '00:00') + ':00', k: 0, html: orderBubble(o) }));
     h.messages.forEach(m => ev.push({ ts: m.ts, k: 1, html: messageBubble(m) }));
-    h.payments.forEach(p => ev.push({ ts: p.date, k: 2, html: paymentBubble(p) }));
+    // A wrong payment cancelled by an admin (payment.cancel, ledger.gs) is a NEGATIVE Payments row
+    // "Cancels <id>: <reason>": it shows as "Payment cancelled", and the original is struck through.
+    const cxOf = {};
+    h.payments.forEach(p => { const c = payCancel(p); if (c && c.of) cxOf[c.of] = c.why || 'cancelled'; });
+    h.payments.forEach(p => ev.push({ ts: p.date, k: 2, html: paymentBubble(p, cxOf) }));
     h.alerts.forEach(a => ev.push({ ts: a.created_at, k: 3, html: alertNote(a) }));
     ev.sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.k - b.k);
     if (!ev.length) return '<div class="wa-sys">No history yet.</div>';
@@ -857,7 +904,10 @@
     let t = String(v == null ? '' : v);
     if (!hasGu(t)) return t;
     const pairs = [['કંઈ નહીં, બધું ચૂકવાઈ ગયું', 'nothing, all paid'], ['કંઈ નહીં', 'none'], ['અન્ય રીતે', 'other']];
-    Object.keys(REASON).forEach(k => pairs.push([REASON[k].gu, REASON[k].en]));
+    Object.keys(REASON).forEach(k => {
+      pairs.push([REASON[k].gu, REASON[k].en]);
+      if (REASON[k].cust) pairs.push([REASON[k].cust, REASON[k].custEn || REASON[k].en]);   // the customer's wording (common.js)
+    });
     Object.keys(MODE).forEach(k => pairs.push([MODE[k].gu, MODE[k].en]));
     (setup().services || []).forEach(x => { if (x.name_gu) pairs.push([x.name_gu, x.name_en || x.key]); });
     pairs.push(['તમારી વિનંતી મુજબ', 'as you requested'], ['અમારી ટીમ ઉપલબ્ધ નથી', 'our team is not available'], ['ખરાબ હવામાન', 'bad weather']);
@@ -933,10 +983,22 @@
       (st === 'failed' ? '<div class="ins-red">Not sent</div>' : ''),
       time, { ticks: ticks, cls: (st === 'failed' ? 'bad' : st === 'read' ? 'ins-read' : 'ins-unread') });
   }
-  function paymentBubble(p) {
-    return WA.bubble('out', '<b class="ins-paid">' + inr(p.amount) + ' received</b> · ' + esc((MODE[p.mode] || { en: p.mode }).en) +
+  // A cancelling row: {of: the cancelled payment_id, why: the reason}, or null for a normal payment
+  function payCancel(p) {
+    if (p.cancel_of) return { of: String(p.cancel_of), why: String(p.note || '').replace(/^Cancels\s+\S+?:\s*/, '') };
+    if (!(Number(p.amount) < 0)) return null;
+    const m = /^Cancels\s+(\S+?):\s*(.*)$/.exec(String(p.note || ''));
+    return m ? { of: m[1], why: m[2] } : { of: '', why: String(p.note || '') };
+  }
+  function paymentBubble(p, cxOf) {
+    const cx = payCancel(p);
+    if (cx) return WA.bubble('out', '<b class="ins-red">Payment cancelled: ' + inr(Math.abs(Number(p.amount) || 0)) + '</b>' +
+      '<div class="sub">Order #' + esc(p.order_id) + (cx.why ? ' · ' + esc(cx.why) : '') + '</div>', fm(mins(p.date)), { cls: 'ins-pb ins-pbx' });
+    const gone = (cxOf && cxOf[String(p.payment_id)]) || (p.cancelled ? 'cancelled' : '');
+    return WA.bubble('out', (gone ? '<s>' : '') + '<b class="ins-paid">' + inr(p.amount) + ' received</b> · ' + esc((MODE[p.mode] || { en: p.mode }).en) + (gone ? '</s>' : '') +
+      (gone ? ' <span class="pill bad">Cancelled</span>' : '') +
       '<div class="sub">Order #' + esc(p.order_id) + (p.note ? ' · ' + esc(p.note) : '') + '</div>',
-      fm(mins(p.date)), { cls: 'ins-pb' });
+      fm(mins(p.date)), { cls: 'ins-pb' + (gone ? ' ins-pbgone' : '') });
   }
   // Alert: a note in the middle. Red for "Act now", yellow for "Check", blue for info.
   function alertNote(a) {
@@ -1003,60 +1065,169 @@
 
   /* ======================================================================
      3. PAYMENTS
+     Usability round 2026-10-08 (MONEY):
+       - "Owing only" (default): one line per client with the total, number of jobs
+         and oldest job date, largest first. "All invoices": one line per job.
+       - On a phone (640 px or less) both lists show as cards, not a squeezed table.
+       - "Add N completed jobs to ledger" first shows the jobs in a preview; jobs
+         with an open problem (partial work, customer said no, size different,
+         price differs) are highlighted. Only the jobs shown are added.
+       - Each recent collection has a "Cancel" button (a wrong payment). Nothing is
+         deleted: the server adds a minus entry with the reason (payment.cancel).
      ====================================================================== */
 
+  // Styles for this screen only (kept here so the Payments screen is in one place)
+  function payCss() {
+    if (document.getElementById('ins-pay-css')) return;
+    const st = document.createElement('style');
+    st.id = 'ins-pay-css';
+    st.textContent = [
+      '.ins-seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}',
+      '.ins-seg button{border:0;background:var(--surface);color:var(--fg);font:inherit;font-weight:600;padding:7px 12px;min-height:38px;cursor:pointer}',
+      '.ins-seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}',
+      '.ins-pbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}',
+      '.ins-prow{display:flex;align-items:center;gap:6px;padding-right:12px}',
+      '.ins-prow .wa-row{flex:1;min-width:0}',
+      '.ins-prow.cx .wa-row .tm{text-decoration:line-through;color:var(--muted)}',
+      '.ins-pv{display:flex;flex-direction:column;gap:0}',
+      '.ins-pv-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 10px;border-top:1px solid var(--line)}',
+      '.ins-pv-row:first-child{border-top:0}',
+      '.ins-pv-row.flag{background:var(--warn-bg);border-radius:8px;border-top-color:transparent}',
+      '.ins-pv-row .sub{grid-column:1/-1}',
+      '.ins-pv-row .num{font-weight:700;text-align:right;font-variant-numeric:tabular-nums}',
+      '.ins-pv-sum{display:flex;justify-content:space-between;font-weight:700;padding:8px 10px;border-top:2px solid var(--line)}',
+      '#ad-pay .ins-ptbl a{color:inherit}',
+      '#ins-pay-dlg.ao-modal{z-index:50}',   // above the phone bottom menu (z-index 40)
+      '.ins-cxl{width:100%;min-height:80px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;background:var(--surface);color:var(--fg)}',
+      '@media (max-width:640px){',
+      ' #ad-pay .ins-ptbl thead{display:none}',
+      ' #ad-pay .ins-ptbl,#ad-pay .ins-ptbl tbody{display:block}',
+      ' #ad-pay .ins-ptbl tr{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 12px;padding:10px 12px;border-top:1px solid var(--line)}',
+      ' #ad-pay .ins-ptbl tbody tr:first-child{border-top:0}',
+      ' #ad-pay .ins-ptbl td{display:block;padding:0;border:0;background:none!important;min-width:0}',
+      ' #ad-pay .ins-ptbl td.c-name{flex:1 1 60%}',
+      ' #ad-pay .ins-ptbl td.c-bal{flex:none;margin-left:auto;text-align:right;font-size:16px}',
+      ' #ad-pay .ins-ptbl td.c-x{flex:none;color:var(--muted);font-size:13px}',
+      ' #ad-pay .ins-ptbl td.c-x[data-l]::before{content:attr(data-l) ": ";font-weight:600}',
+      ' #ad-pay .ins-ptbl td.c-empty{flex:1 1 100%}',
+      ' #ad-pay .ins-ptbl tbody tr:nth-child(even){background:var(--alt)}',
+      ' .ins-prow .btn.sm{min-height:44px;padding:4px 12px}',
+      '}'
+    ].join('\n');
+    document.head.appendChild(st);
+  }
+
+  // Alert types that mean "check this bill before it is added to the ledger"
+  const PAY_FLAGS = { partial: 'Partial work', dispute: 'Customer said no', size_issue: 'Tank size different', price_diff: 'Price differs from quote' };
+  let payReady = [];    // the completed jobs not in the ledger yet (for the preview)
+  let payFlags = {};    // {order_id: ['Partial work', ...]}
+  let payList = {};     // {payment_id: payment} of the recent collections (for the Cancel dialog)
+
   function renderPay(el) {
+    payCss();
     const area = S.pay.area;
+    const view = S.pay.view || 'owing';   // 'owing' (one line per client) or 'all' (one line per job)
     // ONE trip for the whole screen
     const calls = [
       ['ledger.get', {}],                    // the whole ledger (for the tiles)
       ['order.list', { status: 'done' }],    // done jobs (to find ones not in the ledger yet)
-      ['payment.list', {}]                   // last 30 days of collections
+      ['payment.list', {}],                  // last 30 days of collections
+      ['alerts.list', {}]                    // problems on jobs (highlighted in the "add to ledger" preview)
     ];
     if (area) calls.push(['ledger.get', { area: area }]);   // the table, if an area is picked
     loadScreen(el, 'pay', 'Payments', calls, (el, r) => {
-      const all = r[0], shown = r[3] || all, doneOrders = r[1].orders, pays = r[2].payments;
+      const all = r[0], shown = r[4] || all, doneOrders = r[1].orders, pays = r[2].payments;
+      const alerts = (r[3] && r[3].alerts) || [];
       const inLedger = new Set(all.rows.map(x => Number(x.order_id)));
       const ready = doneOrders.filter(o => !inLedger.has(Number(o.order_id)) && o.kind !== 'survey');   // a survey is never billed
       const readyTotal = ready.reduce((a, o) => a + Number(o.balance != null ? o.balance : o.amount), 0);
       const owing = all.rows.filter(x => x.balance > 0), owingClients = new Set(owing.map(x => x.phone)).size;
-      const todayTotal = all.today_payments.reduce((a, p) => a + p.amount, 0);
-      const monthTotal = pays.reduce((a, p) => a + p.amount, 0);
+      const todayLive = all.today_payments.filter(p => !p.cancelled);   // a cancelled payment does not count
+      const todayTotal = todayLive.reduce((a, p) => a + p.amount, 0);
+      const monthTotal = pays.reduce((a, p) => a + p.amount, 0);        // minus entries of cancelled payments included
+      const monthCount = pays.filter(p => !p.cancelled && !p.cancel_of).length;
       const dateOf = {};
       doneOrders.forEach(o => { dateOf[o.order_id] = o.sched_date; });
-      const rows = shown.rows.slice().sort((a, b) => (dateOf[a.order_id] || a.week_start) < (dateOf[b.order_id] || b.week_start) ? -1 : 1);
+      const jobDate = x => x.sched_date || dateOf[x.order_id] || x.week_start;
+
+      // Problems per job (for the preview)
+      payFlags = {};
+      const flag = (id, label) => { const k = String(id); payFlags[k] = payFlags[k] || []; if (!payFlags[k].includes(label)) payFlags[k].push(label); };
+      alerts.forEach(a => { if (PAY_FLAGS[a.type] && a.order_id !== '') flag(a.order_id, PAY_FLAGS[a.type]); });
+      ready.forEach(o => { if (o.dispute === true || o.dispute === 'TRUE') flag(o.order_id, PAY_FLAGS.dispute); });
+      payReady = ready.slice().sort((a, b) => (a.sched_date < b.sched_date ? -1 : a.sched_date > b.sched_date ? 1 : a.order_id - b.order_id));
+      const flagged = payReady.filter(o => payFlags[String(o.order_id)]).length;
+
+      // "Owing only": one line per client (phone) with total, jobs and oldest job date, largest first
+      const groups = {};
+      shown.rows.filter(x => x.balance > 0).forEach(x => {
+        const g = groups[x.phone] = groups[x.phone] || { phone: x.phone, name: x.client_name, area: x.area, total: 0, jobs: 0, oldest: '' };
+        g.total += x.balance; g.jobs++;
+        const d = jobDate(x);
+        if (d && (!g.oldest || d < g.oldest)) g.oldest = d;
+      });
+      const owe = Object.keys(groups).map(k => groups[k]).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+      const rows = shown.rows.slice().sort((a, b) => jobDate(a) < jobDate(b) ? -1 : 1);
+      const clientBtn = (name, phone) => '<button class="lnk ins-cl" data-act="open-client" data-phone="' + esc(phone) + '">' + esc(name) + '</button>';
+      const emptyRow = (cols, text) => '<tr><td class="c-empty" colspan="' + cols + '"><div class="empty">' + text + '</div></td></tr>';
+
+      const oweTable = '<div class="tw"><table class="tbl ins-ptbl"><thead><tr><th>Client</th><th>Phone</th><th>Area</th><th>Jobs</th><th>Oldest job</th><th>Balance</th></tr></thead><tbody>' +
+        (owe.length ? owe.map(g => '<tr><td class="c-name">' + nameCell(g.name, clientBtn(g.name, g.phone)) + '</td>' +
+          '<td class="num c-x"><a href="tel:+' + esc(String(g.phone).replace(/\D/g, '')) + '">' + esc(phoneText(g.phone)) + '</a></td>' +
+          '<td class="c-x">' + esc(areaName(g.area)) + '</td>' +
+          '<td class="num c-x" data-l="Jobs">' + g.jobs + '</td>' +
+          '<td class="c-x" data-l="Oldest job">' + esc(dateLab(g.oldest)) + '</td>' +
+          '<td class="num c-bal"><b>' + inr(g.total) + '</b></td></tr>').join('')
+          : emptyRow(6, area ? 'Nobody owes money in this area.' : 'Nobody owes money.')) +
+        '</tbody></table></div>';
+
+      const allTable = '<div class="tw"><table class="tbl ins-ptbl"><thead><tr><th>Client</th><th>Phone</th><th>Area</th><th>Invoice</th><th>Collected</th><th>Balance</th><th>Status</th></tr></thead><tbody>' +
+        (rows.length ? rows.map(x => '<tr><td class="c-name">' + nameCell(x.client_name, clientBtn(x.client_name, x.phone) +
+          '<div class="sub">' + esc(jobDate(x) ? dateLab(jobDate(x)) : '') + ' · #' + esc(x.order_id) + '</div>') + '</td>' +
+          '<td class="num c-x">' + esc(phoneText(x.phone)) + '</td><td class="c-x">' + esc(areaName(x.area)) + '</td>' +
+          '<td class="num c-x" data-l="Invoice">' + inr(x.billed) + '</td><td class="num c-x" data-l="Collected">' + inr(x.paid) + '</td><td class="num c-bal"><b>' + inr(x.balance) + '</b></td>' +
+          '<td class="c-x"><span class="pill ' + (x.balance <= 0 ? 'ok' : x.paid > 0 ? 'warn' : '') + '">' + (x.balance <= 0 ? 'Paid' : x.paid > 0 ? 'Partly paid' : 'Pending') + '</span></td></tr>').join('')
+          : emptyRow(7, area ? 'Nothing in the ledger for this area.' : 'Nothing in the ledger yet.')) +
+        '</tbody></table></div>';
+
+      // Recent collections: amount and mode; a Cancel button on each payment that can still be cancelled
+      payList = {};
+      pays.forEach(p => { payList[p.payment_id] = p; });
+      const payRow = p => {
+        const minus = !!p.cancel_of;
+        const label = minus ? '<span class="pill bad">Cancellation</span> ' : p.cancelled ? '<span class="pill">Cancelled</span> ' : '';
+        return '<div class="ins-prow' + (p.cancelled ? ' cx' : '') + '">' + WA.row({
+          name: p.client_name, time: shortDay(String(p.date).slice(0, 10)) + ', ' + fm(mins(p.date)),
+          act: 'ins-pay-client', data: { order: p.order_id },
+          preview: label + '<b class="ins-paid">' + inr(p.amount) + '</b> · ' + esc((MODE[p.mode] || { en: p.mode }).en) + ' · order #' + esc(p.order_id) +
+            (p.collector ? ' · by ' + esc(p.collector) : '') + (p.note ? ' · ' + esc(p.note) : '')
+        }) + (!minus && !p.cancelled && p.amount > 0
+          ? '<button class="btn sm" data-act="ins-pay-cancel" data-id="' + esc(p.payment_id) + '" aria-label="Cancel this payment of ' + esc(inr(p.amount)) + '">Cancel</button>' : '') + '</div>';
+      };
 
       el.innerHTML = '<header><div><h2>Payments</h2><p class="sub">The ledger is created every ' + esc(dayName(settings().ledger_day)) + '. The collector sees only name, phone, address and amount.</p></div>' +
-        '<button class="btn pri" data-act="ins-ledger-build"' + (ready.length ? '' : ' disabled') + '>Add ' + ready.length + ' completed job' + (ready.length === 1 ? '' : 's') + ' to ledger (' + inr(readyTotal) + ')</button></header>' +
+        '<button class="btn pri" data-act="ins-ledger-preview"' + (ready.length ? '' : ' disabled') + '>Add ' + ready.length + ' completed job' + (ready.length === 1 ? '' : 's') + ' to ledger (' + inr(readyTotal) + ')' +
+        (flagged ? ' · ' + flagged + ' to check' : '') + '</button></header>' +
 
         '<div class="tiles">' +
         tile('In ledger, to collect', inr(all.total), owingClients + ' client' + (owingClients === 1 ? '' : 's')) +
         tile('Completed, not in ledger yet', inr(readyTotal), ready.length + ' job' + (ready.length === 1 ? '' : 's')) +
-        tile('Collected today', inr(todayTotal), all.today_payments.length + ' payment' + (all.today_payments.length === 1 ? '' : 's')) +
-        tile('Collected, last 30 days', inr(monthTotal), pays.length + ' payment' + (pays.length === 1 ? '' : 's')) +
+        tile('Collected today', inr(todayTotal), todayLive.length + ' payment' + (todayLive.length === 1 ? '' : 's')) +
+        tile('Collected, last 30 days', inr(monthTotal), monthCount + ' payment' + (monthCount === 1 ? '' : 's')) +
         '</div>' +
 
-        '<div class="ins-h3 ins-bar"><h3>Ledger</h3>' +
+        '<div class="ins-h3 ins-bar"><h3>Ledger</h3><div class="ins-pbar">' +
+        '<div class="ins-seg" role="group" aria-label="What to show">' +
+        '<button data-act="ins-pay-view" data-v="owing" aria-pressed="' + (view === 'owing') + '">Owing only</button>' +
+        '<button data-act="ins-pay-view" data-v="all" aria-pressed="' + (view === 'all') + '">All invoices</button></div>' +
         '<select class="fsel" style="width:auto" data-chg="ins-pay-area" aria-label="Filter by area"><option value="">All areas</option>' +
         (setup().areas || []).map(a => '<option value="' + esc(a.key) + '"' + (area === a.key ? ' selected' : '') + '>' + esc(a.name_en) + '</option>').join('') +
-        '<option value="other"' + (area === 'other' ? ' selected' : '') + '>Other</option></select></div>' +
-        '<div class="tw"><table class="tbl"><thead><tr><th>Client</th><th>Phone</th><th>Area</th><th>Invoice</th><th>Collected</th><th>Balance</th><th>Status</th></tr></thead><tbody>' +
-        (rows.length ? rows.map(x => '<tr><td>' + nameCell(x.client_name, '<button class="lnk ins-cl" data-act="open-client" data-phone="' + esc(x.phone) + '">' + esc(x.client_name) + '</button>' +
-          '<div class="sub">' + esc(dateOf[x.order_id] ? dateLab(dateOf[x.order_id]) : 'Week of ' + dateLab(x.week_start)) + ' · #' + esc(x.order_id) + '</div>') + '</td>' +
-          '<td class="num">' + esc(phoneText(x.phone)) + '</td><td>' + esc(areaName(x.area)) + '</td>' +
-          '<td class="num">' + inr(x.billed) + '</td><td class="num">' + inr(x.paid) + '</td><td class="num"><b>' + inr(x.balance) + '</b></td>' +
-          '<td><span class="pill ' + (x.balance <= 0 ? 'ok' : x.paid > 0 ? 'warn' : '') + '">' + (x.balance <= 0 ? 'Paid' : x.paid > 0 ? 'Partly paid' : 'Pending') + '</span></td></tr>').join('')
-          : '<tr><td colspan="7"><div class="empty">' + (area ? 'Nothing in the ledger for this area.' : 'Nothing in the ledger yet.') + '</div></td></tr>') +
-        '</tbody></table></div>' +
+        '<option value="other"' + (area === 'other' ? ' selected' : '') + '>Other</option></select></div></div>' +
+        (view === 'owing' ? oweTable : allTable) +
 
         // Recent collections as a chat list: client initials, amount and mode, date on the right
         '<div class="card ins-flush ins-sec"><div class="ins-h3"><h3>Recent collections <span class="sub">(last 30 days)</span></h3></div>' +
-        (pays.length ? '<div class="wa-list">' + pays.map(p => WA.row({
-          name: p.client_name, time: shortDay(String(p.date).slice(0, 10)) + ', ' + fm(mins(p.date)),
-          act: 'ins-pay-client', data: { order: p.order_id },
-          preview: '<b class="ins-paid">' + inr(p.amount) + '</b> · ' + esc((MODE[p.mode] || { en: p.mode }).en) + ' · order #' + esc(p.order_id) +
-            (p.collector ? ' · by ' + esc(p.collector) : '') + (p.note ? ' · ' + esc(p.note) : '')
-        })).join('') + '</div>'
+        (pays.length ? '<div class="wa-list">' + pays.map(payRow).join('') + '</div>'
           : '<div class="empty ins-m">No collections in the last 30 days.</div>') + '</div>';
 
       // Remember phones by order id so a click on a collection can open the client
@@ -1069,18 +1240,100 @@
   const dayName = d => ({ Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' }[d] || 'Friday');
 
   onChg('ins-pay-area', el => { S.pay.area = el.value; refresh(); });
+  onAct('ins-pay-view', el => { S.pay.view = el.dataset.v; refresh(); });
 
   onAct('ins-pay-client', el => {
     const phone = payPhones[el.dataset.order];
     if (phone) openClient(phone);
   });
 
+  /* ---------- a small in-page dialog for this screen (same look as the order dialogs) ---------- */
+  let payLastFocus = null;
+  function payDlg(title, bodyHtml, footHtml) {
+    let m = document.getElementById('ins-pay-dlg');
+    if (!m) { m = document.createElement('div'); m.id = 'ins-pay-dlg'; document.body.appendChild(m); }
+    payLastFocus = document.activeElement;
+    m.className = 'ao-modal dlg';
+    m.innerHTML = '<div class="ao-scrim" data-act="ins-pay-dlg-close"></div>' +
+      '<section class="ao-dlg" role="dialog" aria-modal="true" aria-labelledby="ins-pay-dlg-t">' +
+      '<header class="ao-dlgh"><h3 id="ins-pay-dlg-t">' + esc(title) + '</h3>' +
+      '<button type="button" class="ao-x" data-act="ins-pay-dlg-close" aria-label="Close">×</button></header>' +
+      '<div class="ao-dlgb">' + bodyHtml + '</div><footer class="ao-dlgf">' + footHtml + '</footer></section>';
+    m.hidden = false;
+    document.body.classList.add('ao-noscroll');
+    const f = m.querySelector('.ao-dlgb textarea, .ao-dlgf .pri, .ao-dlgf .danger');
+    if (f) f.focus();
+  }
+  function payDlgClose() {
+    const m = document.getElementById('ins-pay-dlg');
+    if (!m) return;
+    m.hidden = true; m.innerHTML = '';
+    document.body.classList.remove('ao-noscroll');
+    if (payLastFocus && document.contains(payLastFocus)) payLastFocus.focus();
+  }
+  onAct('ins-pay-dlg-close', payDlgClose);
+  document.addEventListener('keydown', e => {
+    const m = document.getElementById('ins-pay-dlg');
+    if (e.key === 'Escape' && m && !m.hidden) payDlgClose();
+  });
+
+  /* ---------- "Add N completed jobs to ledger": preview first ---------- */
+  onAct('ins-ledger-preview', () => {
+    if (!payReady.length) return;
+    const total = payReady.reduce((a, o) => a + Number(o.balance != null ? o.balance : o.amount), 0);
+    const flagged = payReady.filter(o => payFlags[String(o.order_id)]);
+    payDlg('Add ' + payReady.length + ' job' + (payReady.length === 1 ? '' : 's') + ' to the ledger',
+      (flagged.length ? '<div class="box warn">' + flagged.length + ' job' + (flagged.length === 1 ? ' has' : 's have') +
+        ' a problem (highlighted). Check the bill first: cancel here, fix the order, then add.</div>' : '') +
+      '<p class="sub" style="margin:0">After this the collector can see these jobs and take the money.</p>' +
+      '<div class="ins-pv">' + payReady.map(o => {
+        const f = payFlags[String(o.order_id)];
+        return '<div class="ins-pv-row' + (f ? ' flag' : '') + '"><span><b>' + esc(o.client_name) + '</b></span>' +
+          '<span class="num">' + inr(o.balance != null ? o.balance : o.amount) + '</span>' +
+          '<span class="sub">' + esc(dateLab(o.sched_date)) + ' · #' + esc(o.order_id) + ' · ' + esc(svcShortList(o.services)) +
+          (f ? ' · ' + f.map(x => '<span class="pill warn">' + esc(x) + '</span>').join(' ') : '') + '</span></div>';
+      }).join('') + '<div class="ins-pv-sum"><span>Total</span><span>' + inr(total) + '</span></div></div>',
+      '<button class="btn" data-act="ins-pay-dlg-close">Cancel</button>' +
+      '<button class="btn pri" data-act="ins-ledger-build">Add to ledger</button>');
+  });
+
   onAct('ins-ledger-build', async el => {
     el.disabled = true;
     try {
-      const r = await api('ledger.build', {});
+      // Only the jobs shown in the preview (a job finished a moment ago waits for the next time)
+      const r = await api('ledger.build', { order_ids: payReady.map(o => o.order_id) });
+      payDlgClose();
       cacheDrop(['ledger.get', 'screen.pay', 'screen.dash']);
       toast(r.added + ' job' + (r.added === 1 ? '' : 's') + ' added. The collector can see them now.');
+      refresh();
+    } catch (e) { el.disabled = false; if (e.message !== 'AUTH') toast(errText(e)); }
+  });
+
+  /* ---------- cancel a wrong payment ---------- */
+  onAct('ins-pay-cancel', el => {
+    const p = payList[el.dataset.id];
+    if (!p) return;
+    payDlg('Cancel payment',
+      '<p class="ao-dlgs">' + WA.avatar(p.client_name, { small: true }) + '<span><b>' + esc(p.client_name) + '</b><span class="sub"> · order #' + esc(p.order_id) + '</span>' +
+      '<span class="sub ao-dlgw"><b>' + inr(p.amount) + '</b> · ' + esc((MODE[p.mode] || { en: p.mode }).en) + ' · ' + esc(dateLab(String(p.date).slice(0, 10))) + ', ' + fm(mins(p.date)) +
+      (p.collector ? ' · by ' + esc(p.collector) : '') + '</span></span></p>' +
+      '<p class="sub" style="margin:0">Nothing is deleted. A minus entry with your name and reason is added, and the client\'s balance goes back up by ' + inr(p.amount) +
+      '. The customer gets no WhatsApp.</p>' +
+      '<label class="fld"><span>Why is it cancelled? (needed)</span><textarea class="ins-cxl" id="ins-cxl" maxlength="200" placeholder="e.g. typed twice, cheque bounced, wrong client"></textarea></label>' +
+      '<div class="box bad" id="ins-cxl-err" hidden>Write the reason first.</div>',
+      '<button class="btn" data-act="ins-pay-dlg-close">Keep payment</button>' +
+      '<button class="btn danger" data-act="ins-pay-cancel-go" data-id="' + esc(p.payment_id) + '">Cancel payment</button>');
+  });
+
+  onAct('ins-pay-cancel-go', async el => {
+    const reason = (($('#ins-cxl') || {}).value || '').trim();
+    if (!reason) { const er = $('#ins-cxl-err'); if (er) er.hidden = false; const t = $('#ins-cxl'); if (t) t.focus(); return; }
+    el.disabled = true;
+    try {
+      const r = await api('payment.cancel', { payment_id: el.dataset.id, reason: reason });
+      payDlgClose();
+      cacheDrop(['ledger.get', 'payment.list', 'screen.pay', 'screen.dash', 'screen.clients']);
+      toast('Payment cancelled. Balance now ' + inr(r.balance) + '.');
       refresh();
     } catch (e) { el.disabled = false; if (e.message !== 'AUTH') toast(errText(e)); }
   });
