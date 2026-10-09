@@ -970,6 +970,7 @@
   // Date range for the "when" chips
   function whenRange(w) {
     const t = todayIso();
+    if (w === 'thisweek') return weekRange();   // the admin's phone (added 2026-10-09)
     if (w === 'today') return { from: t, to: t };
     if (w === 'tomorrow') { const d = addD(t, 1); return { from: d, to: d }; }
     if (w === 'week') return { from: t, to: addD(t, 6) };
@@ -983,7 +984,7 @@
     AO.ordLoading = true; AO.ordErr = false;
     // the all-dates copy used by the search is out of date too: load it again only while searching
     AO.all = null;
-    if (searching() && AO.ord.when !== 'all') loadAllForSearch();
+    if (searching() && AO.ord.when !== 'all' && !phoneAdmin()) loadAllForSearch();
     paintOrders();
     try {
       await apiCached('order.list', ordParams(), r => {
@@ -1004,6 +1005,7 @@
 
   // What to ask the server for. Only the 'All' view also shows cancelled orders (greyed out).
   function ordParams() {
+    phoneWhen();
     const p = whenRange(AO.ord.when);
     if (AO.ord.when === 'all') p.include_cancelled = true;
     return p;
@@ -1022,7 +1024,16 @@
      Instant, in the browser. While text is typed, the search also looks at other days:
      every order is loaded once (one order.list without dates) and searched too. */
   const searching = () => !!String(AO.ord.q || '').trim();
-  const searchAll = () => searching() && AO.ord.when !== 'all' && !!AO.all;   // searching beyond the chosen days
+  // On the admin's phone the search stays inside the running week (no all-dates search)
+  const searchAll = () => !phoneAdmin() && searching() && AO.ord.when !== 'all' && !!AO.all;   // searching beyond the chosen days
+  /* The admin's phone shows only the running week (added 2026-10-09): Today, Tomorrow (when it is
+     still this week) and This week. Any other choice (Next 7 days, All, a date from an alert)
+     becomes This week. */
+  function phoneWhen() {
+    if (!phoneAdmin()) { if (AO.ord.when === 'thisweek') AO.ord.when = 'week'; return; }
+    const okTomorrow = addD(todayIso(), 1) <= weekRange().to;
+    if (!['today', 'thisweek'].concat(okTomorrow ? ['tomorrow'] : []).includes(AO.ord.when)) AO.ord.when = 'thisweek';
+  }
   function searchHit(o, q) {
     const t = String(q || '').trim().toLowerCase(), d = t.replace(/\D/g, '');
     if (!t) return true;
@@ -1039,7 +1050,7 @@
   }
   onInp('ao-q', el => {
     AO.ord.q = el.value;
-    if (searching() && AO.ord.when !== 'all' && !AO.all) loadAllForSearch();
+    if (searching() && AO.ord.when !== 'all' && !AO.all && !phoneAdmin()) loadAllForSearch();
     paintOrders();
   });
 
@@ -1130,6 +1141,7 @@
   }
 
   function paintOrders() {
+    phoneWhen();   // the admin's phone: this week only
     if (!isOpen('orders')) return;
     const el = $('#ad-orders'), f = AO.ord;
     const L = ordList(), unN = L.filter(o => o.status === 'new' && !isSurvey(o)).length;
@@ -1177,10 +1189,12 @@
       // Search by name or phone (usability round 2026-10-08)
       '<div class="ao-search"><label class="ins-sbox">' + WA.icons.search +
       '<input type="search" id="ao-q" data-inp="ao-q" placeholder="Search name or phone" aria-label="Search orders by client name or phone" value="' + esc(f.q || '') + '"></label>' +
-      (searching() ? '<span class="sub">' + (AO.ord.when === 'all' ? 'Searching all dates.' : searchAll() ? 'Searching all dates, not only the chosen days.'
+      (searching() ? '<span class="sub">' + (phoneAdmin() ? 'Searching this week. Other weeks: on the laptop.' : AO.ord.when === 'all' ? 'Searching all dates.' : searchAll() ? 'Searching all dates, not only the chosen days.'
         : 'Searching the chosen days… other dates are loading.') + '</span>' : '') + '</div>' +
       '<div class="chips" style="margin-bottom:8px">' +
-      [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'Next 7 days'], ['all', 'All']].map(w =>
+      (phoneAdmin()
+        ? [['today', 'Today']].concat(addD(todayIso(), 1) <= weekRange().to ? [['tomorrow', 'Tomorrow']] : []).concat([['thisweek', 'This week']])
+        : [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'Next 7 days'], ['all', 'All']]).map(w =>
         '<button class="chip" aria-pressed="' + (f.when === w[0]) + '" data-act="ao-when" data-w="' + w[0] + '">' + w[1] + '</button>').join('') +
       '<button class="chip" aria-pressed="' + f.un + '" data-act="ao-unonly">Unassigned only</button>' +
       // Phone only: the dropdowns fold away behind one "Filters" button (see admin.css)

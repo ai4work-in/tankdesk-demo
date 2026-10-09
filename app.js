@@ -47,9 +47,12 @@ const ADMIN_NAV = [
 const ADMIN_NAV_MODULE = { clients: 'repeat', ot: 'insights', reports: 'insights' };
 // The menu for this client: packs that are off are left out; names follow word()
 // ("New order" becomes "New task" when the "orders" add-on is off)
+// Screens on the admin's phone (everything else is on the laptop), added 2026-10-09
+const ADMIN_PHONE_NAV = ['dash', 'orders'];
 function adminNav() {
-  return ADMIN_NAV.filter(n => !ADMIN_NAV_MODULE[n[0]] || hasMod(ADMIN_NAV_MODULE[n[0]])).map(n => {
-    const sub = n[0] === 'dash' && !hasMod('clients') ? "Alerts and today's work" : n[2];   // no "visits due" without Clients
+  return ADMIN_NAV.filter(n => !ADMIN_NAV_MODULE[n[0]] || hasMod(ADMIN_NAV_MODULE[n[0]]))
+    .filter(n => !phoneAdmin() || ADMIN_PHONE_NAV.includes(n[0])).map(n => {
+    const sub = n[0] === 'dash' && (!hasMod('clients') || phoneAdmin()) ? "Alerts and today's work" : n[2];   // no "visits due" without Clients or on the phone
     return [n[0], word(n[1]), sub, n[3]];
   });
 }
@@ -258,8 +261,9 @@ function renderAdminBottomNav(nav) {
   bar.innerHTML = main.map(k => '<button data-act="tab" data-t="' + k + '"' + (App.adminTab === k ? ' aria-current="page"' : '') + '>' + icon(k) +
       '<span>' + esc(k === 'new' ? word('New order').replace(/ order| task/i, '') : BNAV_SHORT[k]) + '</span>' +
       (k === 'dash' && App.alertUnseen ? '<i class="bd bad">' + App.alertUnseen + '</i>' : '') + '</button>').join('') +
-    (rest.length ? '<button data-act="ad-more" aria-haspopup="true" aria-expanded="false"' + (inMore ? ' aria-current="page"' : '') + '>' +
-      WA.icons.more + '<span>' + esc(inMore ? (rest.find(n => n[0] === App.adminTab) || ['', 'More'])[1] : 'More') + '</span></button>' : '');
+    // "More" also when it only holds Log out (the admin's phone has just two screens)
+    ('<button data-act="ad-more" aria-haspopup="true" aria-expanded="false"' + (inMore ? ' aria-current="page"' : '') + '>' +
+      WA.icons.more + '<span>' + esc(inMore ? (rest.find(n => n[0] === App.adminTab) || ['', 'More'])[1] : 'More') + '</span></button>');
   // the "More" sheet: the other screens and Log out
   let more = document.getElementById('ad-more');
   if (!more) { more = document.createElement('div'); more.id = 'ad-more'; more.hidden = true; $('#v-admin').appendChild(more); }
@@ -268,6 +272,15 @@ function renderAdminBottomNav(nav) {
       (WA.icons[n[3]] || '') + '<span><b>' + esc(n[1]) + '</b><small>' + esc(n[2]) + '</small></span></button>').join('') +
     '<button role="menuitem" data-act="logout" class="ad-moreout">' + WA.icons.logout + '<span><b>Log out</b></span></button></div>';
 }
+// Turning a tablet or resizing a laptop window across 640 px: draw the admin screens again
+// (phone = two screens, this week only; wider = everything)
+(function () {
+  if (!window.matchMedia) return;
+  const mq = window.matchMedia('(max-width:640px)');
+  const redraw = () => { if (App.session && App.session.role === 'admin' && !$('#v-admin').hidden) renderAdmin(); };
+  if (mq.addEventListener) mq.addEventListener('change', redraw); else if (mq.addListener) mq.addListener(redraw);
+})();
+
 function closeAdminMore() {
   const m = document.getElementById('ad-more');
   if (m) m.hidden = true;

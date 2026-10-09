@@ -767,3 +767,30 @@ a.ao-tel:hover{color:var(--accent);text-decoration-color:var(--accent)}
 .ao-owes .pill{margin-right:4px}
 .ao-dupb .ao-dupo{display:inline-block;margin-right:10px;font-variant-numeric:tabular-nums}
 .ao-dupb .sub{margin-top:4px}
+
+/* ---------- Dashboard on a phone (added 2026-10-09) ----------
+   Order on a phone: alerts first, then Teams today, then small number tiles, then the week chart,
+   Visits due and Quotations. The laptop layout is unchanged. */
+@media (max-width:640px){
+  #ad-dash:not([hidden]){display:flex;flex-direction:column;gap:12px}
+  #ad-dash .two{display:contents}
+  #ad-dash>header{order:0;margin:0}
+  #ad-dash .ins-d-al{order:1}
+  #ad-dash .ins-d-teams{order:2}
+  #ad-dash .ins-d-tiles{order:3}
+  #ad-dash .ins-d-week{order:4}
+  #ad-dash .ins-d-due{order:5}
+  #ad-dash .ins-d-quotes{order:6}
+  #ad-dash>*,#ad-dash .two>*{margin:0}
+  #ad-dash .ins-d-al .ins-feed{max-height:none}
+  /* small tiles, three in a row */
+  #ad-dash .ins-d-tiles{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  #ad-dash .ins-d-tiles .tile{padding:8px 9px;border-radius:10px}
+  #ad-dash .ins-d-tiles .tile .k{font-size:11px;line-height:1.25}
+  #ad-dash .ins-d-tiles .tile .v{font-size:17px}
+  #ad-dash .ins-d-tiles .tile .sub{font-size:11px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+}
+/* Teams today: call the driver in one tap */
+.ins-tcall{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin-left:6px;border-radius:50%;
+  border:1px solid var(--line);color:var(--accent);background:var(--surface);vertical-align:middle}
+.ins-tcall svg{width:17px;height:17px}

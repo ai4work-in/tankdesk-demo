@@ -241,12 +241,15 @@
     const t = todayIso();
     // Add-ons: "Visits due" needs Clients, "Quotations" needs Survey and quotation.
     // An add-on that is off: its card and tile are left out and its data is not asked for.
-    const withDue = hasMod('clients'), withQuotes = hasMod('quotation');
+    // The admin's PHONE (added 2026-10-09): only the running week (alerts, numbers, overtime),
+    // plus the total still to collect over all weeks. No Visits due or Quotations (laptop).
+    const phone = phoneAdmin(), wk = weekRange();
+    const withDue = hasMod('clients') && !phone, withQuotes = hasMod('quotation') && !phone;
     const calls = [
       ['report.revenue', { range: 'week' }],
       ['alerts.list', {}],
       ['ledger.get', {}],
-      ['report.overtime', { range: 'today' }],
+      ['report.overtime', { range: phone ? 'week' : 'today' }],
       ['order.list', { from: t, to: t }]
     ];
     if (withDue) calls.push(['reminders.list', {}]);
@@ -270,12 +273,23 @@
       const remDays = rem ? rem.reminder_days : (Number(settings().reminder_days) || 20);
       const unseen = al ? al.unseen : 0;
       if (al && App.setAlertBadge) App.setAlertBadge(unseen);   // keep the menu badge in step, no extra trip
+      // On the phone: only this week's alerts
+      const alW = al && phone ? Object.assign({}, al, { alerts: al.alerts.filter(a => String(a.created_at).slice(0, 10) >= wk.from) }) : al;
+      const todoN = alW ? alW.alerts.filter(a => (a.sev === 'bad' || a.sev === 'warn') && !a.resolved_at).length : 0;
 
-      el.innerHTML = '<header><div><h2>Dashboard</h2><p class="sub">' + esc(lab(t)) + ' · live from the field</p></div>' +
+      el.innerHTML = '<header><div><h2>Dashboard</h2><p class="sub">' + (phone ? 'This week · ' + esc(lab(wk.from)) + ' to ' + esc(lab(wk.to)) : esc(lab(t)) + ' · live from the field') + '</p></div>' +
         '<button class="btn sm" data-act="ins-retry">Refresh</button></header>' +
 
-        // Tiles
-        '<div class="tiles">' +
+        // Tiles. Phone: this week's numbers, and the total still to collect (all weeks)
+        (phone ? '<div class="tiles ins-d-tiles">' +
+        tile('Done this week', rev ? inr(rev.done_total) : dash, rev ? 'work finished' : na) +
+        tile('Booked this week', rev ? inr(rev.booked_total) : dash, rev ? 'all jobs this week' : na) +
+        tile('Collected this week', rev ? inr(rev.collected) : dash, rev ? 'payments' : na) +
+        tile('Still to collect', led ? inr(led.total) : dash, led ? owingClients + ' client' + (owingClients === 1 ? '' : 's') + ' · all weeks' : na, led && led.total ? 'bad' : '') +
+        tile('Alerts to do', alW ? todoN : dash, alW ? 'this week' : na, todoN ? 'bad' : '') +
+        tile('Overtime this week', ot ? dur(ot.total_min || 0) : dash, 'outside ' + fm(officeStart()) + ' to ' + fm(officeEnd())) +
+        '</div>' :
+        '<div class="tiles ins-d-tiles">' +
         tile('Revenue today', ol ? inr(revenue) : dash, ol ? dn.length + ' of ' + td.length + ' jobs done' : na) +
         tile('Booked today', ol ? inr(booked) : dash, ol ? td.filter(o => o.status === 'new').length + ' still need a team' : na) +
         tile('To collect', led ? inr(led.total) : dash, led ? owingClients + ' client' + (owingClients === 1 ? '' : 's') + ' in ledger' : na) +
@@ -283,28 +297,28 @@
         tile('Overtime today', ot ? dur(ot.total_min || 0) : dash, 'office hours ' + fm(officeStart()) + ' to ' + fm(officeEnd())) +
         (withDue ? tile('Visits due', rem ? due.length : dash, !rem ? na : overdue ? '<span class="ins-red">' + overdue + ' overdue</span>' : 'next ' + remDays + ' days') : '') +
         (withQuotes ? tile('Quotations', svl ? quotes.length : dash, !svl ? na : inr(quoteValue) + ' waiting' + (toMeasure ? ' · ' + toMeasure + ' to measure' : '')) : '') +
-        '</div>' +
+        '</div>') +
 
         // Week chart + alerts
-        '<div class="two"><div class="card"><h3>This week</h3>' + (rev ? '<div class="ins-chart">' + weekChart(rev.by_day) + '</div>' +
+        '<div class="two"><div class="card ins-d-week"><h3>This week</h3>' + (rev ? '<div class="ins-chart">' + weekChart(rev.by_day) + '</div>' +
         '<div class="chips sub ins-legend"><span><i class="tdot" style="--tc:var(--accent)"></i> Done ' + inr(rev.done_total) + '</span>' +
         '<span><i class="tdot" style="--tc:var(--accent-soft);outline:1px dashed var(--accent)"></i> Booked, not done ' + inr(rev.booked_total - rev.done_total) + '</span>' +
         '<span>Collected ' + inr(rev.collected) + '</span></div>' : '<div class="empty">The week chart could not load. <button class="lnk" data-act="ins-retry">Try again</button></div>') + '</div>' +
-        '<div class="card ins-flush"><div class="ins-h3"><h3>Alerts' + (unseen ? ' <span class="pill bad">' + unseen + ' new</span>' : '') + '</h3>' +
-        '<div class="ins-alh">' + (unseen ? '<button class="lnk" style="font-size:12px" data-act="ins-seen">Mark all seen</button>' : '') + alertViewSeg(al) + '</div></div>' +
-        (al ? alertFeed(alertsShown(al.alerts), S.al.view === 'todo' ? 'Nothing to do. Problems from the field stay here until someone marks them resolved.' : 'Alerts from the field show up here.')
+        '<div class="card ins-flush ins-d-al"><div class="ins-h3"><h3>Alerts' + (unseen ? ' <span class="pill bad">' + unseen + ' new</span>' : '') + '</h3>' +
+        '<div class="ins-alh">' + (unseen ? '<button class="lnk" style="font-size:12px" data-act="ins-seen">Mark all seen</button>' : '') + alertViewSeg(alW) + '</div></div>' +
+        (alW ? alertFeed(alertsShown(alW.alerts), S.al.view === 'todo' ? 'Nothing to do. Problems from the field stay here until someone marks them resolved.' : 'Alerts from the field show up here.')
           : '<div class="empty ins-m">Alerts could not load.</div>') + '</div></div>' +
 
         // Teams today + visits due (without Clients: Teams today on its own)
-        (withDue ? '<div class="two">' : '') + '<div class="card' + (withDue ? '' : ' ins-sec') + '"><h3>Teams today</h3><div class="tl">' + (ol ? teamsToday(td, ot ? ot.by_team : []) : '<div class="sub">Today\'s jobs could not load.</div>') + '</div></div>' +
-        (!withDue ? '' : '<div class="card ins-flush" id="ins-due"><div class="ins-h3"><h3>Visits due <span class="sub">(next ' + esc(remDays) + ' days)</span></h3></div>' +
+        (withDue ? '<div class="two">' : '') + '<div class="card ins-d-teams' + (withDue ? '' : ' ins-sec') + '"><h3>Teams today</h3><div class="tl">' + (ol ? teamsToday(td, ot ? ot.by_team : []) : '<div class="sub">Today\'s jobs could not load.</div>') + '</div></div>' +
+        (!withDue ? '' : '<div class="card ins-flush ins-d-due" id="ins-due"><div class="ins-h3"><h3>Visits due <span class="sub">(next ' + esc(remDays) + ' days)</span></h3></div>' +
         (!rem ? '<div class="empty ins-m">Visits due could not load.</div>'
           : due.length ? '<div class="wa-list ins-due">' + due.map(dueItem).join('') + '</div>'
           : '<div class="empty ins-m">No visits due. Set a next visit date on a client page or on New order.</div>') +
         '</div></div>') +
 
         // Quotations: surveys measured, quotation not answered yet (draft or sent)
-        (!withQuotes ? '' : '<div class="card ins-flush ins-sec" id="ins-quotes"><div class="ins-h3"><h3>Quotations <span class="sub">(draft and sent' +
+        (!withQuotes ? '' : '<div class="card ins-flush ins-sec ins-d-quotes" id="ins-quotes"><div class="ins-h3"><h3>Quotations <span class="sub">(draft and sent' +
         (toMeasure ? ' · ' + toMeasure + ' survey' + (toMeasure === 1 ? '' : 's') + ' still to measure' : '') + ')</span></h3></div>' +
         (!svl ? '<div class="empty ins-m">Quotations could not load.</div>'
           : quotes.length ? '<div class="wa-list ins-due">' + quotes.map(quoteItem).join('') + '</div>'
@@ -399,6 +413,12 @@
   /* One row per team: the live status line (same words as Team routes, from
      App.teamLiveStatus in admin-orders.js), "1 of 3 done" and overtime.
      The progress bar shows only once at least one job is done (an empty bar looks broken). */
+  // "9825012345" -> "919825012345" for tel: links ('' when it is not a phone number)
+  function dialNo(p) {
+    const d = String(p || '').replace(/\D/g, '');
+    if (d.length === 10) return '91' + d;
+    return d.length >= 11 ? d : '';
+  }
   function teamsToday(orders, byTeam) {
     const teams = (setup().teams || []).filter(t => t.active !== false);
     if (!teams.length) return '<div class="sub">No teams in the Setup sheet.</div>';
@@ -406,10 +426,14 @@
       const os = orders.filter(o => o.team === t.team), done = os.filter(o => o.status === 'done').length;
       const otm = ((byTeam || []).find(x => x.team === t.team) || {}).minutes || 0;
       const st = App.teamLiveStatus ? App.teamLiveStatus(os) : { cls: 'idle', text: os.length ? '' : 'No jobs today' };
+      const ph = dialNo(t.driver_phone), who = t.driver_name || ('Team ' + t.team);
       return '<div class="row ins-tr" style="--tc:' + teamColor(t.team, teamKeys()) + '">' + tchip(t.team, true) +
         '<div class="ins-trm">' + (st.text ? '<div class="ao-live ' + st.cls + '"><i></i><span>' + esc(st.text) + '</span></div>' : '') +
         (done ? '<div class="prog"><i style="width:' + (done / os.length * 100) + '%"></i></div>' : '') + '</div>' +
-        '<span class="sub num">' + (os.length ? done + ' of ' + os.length + ' done' : '') + (otm ? ' · OT ' + dur(otm) : '') + '</span></div>';
+        '<span class="sub num">' + (os.length ? done + ' of ' + os.length + ' done' : '') + (otm ? ' · OT ' + dur(otm) : '') +
+        // Call the driver in one tap (added 2026-10-09; shown when the Teams tab has the driver's phone)
+        (ph ? ' <a class="ins-tcall" href="tel:+' + ph + '" aria-label="Call ' + esc(who) + '" title="Call ' + esc(who) + '">' + WA.icons.call + '</a>' : '') +
+        '</span></div>';
     }).join('');
   }
 
@@ -1094,6 +1118,7 @@
   onAct('open-client', (el, e) => {
     if (e) e.stopPropagation();
     if (!hasMod('clients')) return;   // no client pages without the Clients add-on
+    if (phoneAdmin()) { toast('Client history is on the laptop.'); return; }   // the admin's phone: Dashboard and Orders only
     if (el.dataset.phone) openClient(el.dataset.phone);
   });
 

@@ -32,6 +32,12 @@ const daysBetween = (a, b) => Math.round((pd(b) - pd(a)) / 86400000);
 const lab = s => { const d = pd(s); return DAYS[d.getDay()] + ' ' + d.getDate() + ' ' + MON[d.getMonth()]; };
 // today's date on this device ("YYYY-MM-DD"); phones in India are on India time
 const todayIso = () => isoOf(new Date());
+// The running week, Monday to Sunday: {from, to} (same rule as the server's "week")
+const weekRange = () => { const t = todayIso(), m = addD(t, -((pd(t).getDay() + 6) % 7)); return { from: m, to: addD(m, 6) }; };
+/* Admin on a PHONE (screen up to 640 px wide), added 2026-10-09 (Ankitaa): the phone shows only
+   Dashboard and Orders, for the running week, plus the total still to collect (all weeks).
+   The laptop shows everything. */
+const phoneAdmin = () => !!(window.matchMedia && window.matchMedia('(max-width:640px)').matches);
 // minutes since midnight right now
 const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
 // now as "2026-10-07T14:30:05"
