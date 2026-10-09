@@ -237,7 +237,7 @@ const GU = {
   job_done: 'આખું કામ પૂર્ણ',
   ongoing: 'ચાલુ કામ',
   // supervisor (measures the tanks before the quotation)
-  supervisor: 'સુપરવાઇઝર',
+  supervisor: 'સર્વેયર',   // renamed Surveyor on 2026-10-09 (the role key stays 'supervisor')
   surveys: 'સર્વે',
   sent_surveys: 'મોકલેલા',
   send_measure: 'માપ મોકલો',
@@ -323,7 +323,7 @@ const EN = {
   day_done: "Today's work done",
   job_done: 'Whole job done',
   ongoing: 'Ongoing job',
-  supervisor: 'Supervisor',
+  supervisor: 'Surveyor',
   surveys: 'Surveys',
   sent_surveys: 'Sent',
   send_measure: 'Send sizes',

@@ -66,7 +66,7 @@ const TankEd = (function () {
   const WORDS = {
     gu: { tank: 'ટાંકી', del: '✕ કાઢો', OH: 'ઉપરની', UG: 'અંડરગ્રાઉન્ડ', cement: 'સિમેન્ટ', plastic: 'પ્લાસ્ટિક',
       lit: 'લિટર', size: 'માપ', m: 'મીટર', ft: 'ફૂટ', mShort: 'મી.', ftShort: 'ફૂટ',
-      L: 'લંબાઈ', W: 'પહોળાઈ', H: 'ઊંચાઈ', D: 'ઊંડાઈ', count: 'સંખ્યા', add: 'ટાંકી ઉમેરો', less: 'ઓછી', more: 'વધારે',
+      L: 'લંબાઈ', W: 'પહોળાઈ', H: 'ઊંચાઈ', D: 'ઊંડાઈ', count: 'સંખ્યા', add: 'ટાંકી ઉમેરો', less: 'એક ટાંકી ઓછી કરો', more: 'એક ટાંકી વધારો',
       litres: n => litresText(n) + ' લિટર', total: n => 'કુલ ' + litresText(n) + ' લિટર',
       hint: 'બે ભાગ (પાર્ટિશન)? દરેક ભાગ અલગ ટાંકી તરીકે લખો.',
       empty: n => 'ટાંકી ' + n + ' ખાલી છે: માપ લખો અથવા કાઢી નાખો.',
@@ -80,7 +80,7 @@ const TankEd = (function () {
       unlink: 'અલગ ટાંકી છે', restored: 'તમે પહેલાં લખેલું માપ પાછું આવ્યું.' },
     en: { tank: 'Tank', del: '✕ Remove', OH: 'Overhead', UG: 'Underground', cement: 'Cement', plastic: 'Plastic',
       lit: 'Litres', size: 'Size', m: 'Metres', ft: 'Feet', mShort: 'm', ftShort: 'ft',
-      L: 'Length', W: 'Width', H: 'Height', D: 'Depth', count: 'How many', add: 'Add tank', less: 'Fewer', more: 'More',
+      L: 'Length', W: 'Width', H: 'Height', D: 'Depth', count: 'How many', add: 'Add tank', less: 'One tank fewer', more: 'One tank more',
       litres: n => litresText(n) + ' L', total: n => 'Total ' + litresText(n) + ' L',
       hint: 'Partition? Enter each part as its own tank.',
       empty: n => 'Tank ' + n + ' is empty: enter its size or remove it.',

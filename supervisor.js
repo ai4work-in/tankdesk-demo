@@ -39,7 +39,8 @@ function svNoteKeep(id, text) {
 function svNoteKept(id) { try { return localStorage.getItem(SV_NOTE + id) || ''; } catch (e) { return ''; } }
 // The supervisor's own lines in the order notes ("Supervisor: ..." added by survey.submit) and the office's lines
 const SV_NL = String.fromCharCode(10);   // a line break
-const svMyNotes = notes => String(notes || '').split(SV_NL).filter(l => /^Supervisor: /.test(l)).map(l => l.replace(/^Supervisor: /, '')).join(SV_NL);
+// Notes start "Surveyor: " (older ones "Supervisor: ", before the rename on 2026-10-09)
+const svMyNotes = notes => String(notes || '').split(SV_NL).filter(l => /^(Surveyor|Supervisor): /.test(l)).map(l => l.replace(/^(Surveyor|Supervisor): /, '')).join(SV_NL);
 const svOfficeNotes = notes => String(notes || '').split(SV_NL).filter(l => !/^Supervisor: /.test(l)).join(SV_NL).trim();
 // A survey that is measured (in the fresh list): nothing typed for it needs keeping any more
 function svForgetDone() {

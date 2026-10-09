@@ -454,7 +454,7 @@
     if (!box) return;
     box.innerHTML = [['cleaning', 'Cleaning job'], ['survey', 'Survey visit']].map(k => '<button type="button" class="chip" data-act="ao-kind" data-k="' + k[0] + '" aria-pressed="' +
       (f.kind === k[0]) + '"' + (amc && k[0] === 'survey' ? ' disabled' : '') + '>' + k[1] + '</button>').join('');
-    $('#ao-kind-n').textContent = sv ? 'The supervisor visits and measures the tanks (no team, no charge). Then you send the quotation from Orders.'
+    $('#ao-kind-n').textContent = sv ? 'The surveyor visits and measures the tanks (no team, no charge). Then you send the quotation from Orders.'
       : amc ? 'An AMC visit: tanks and price come from the contract.' : 'Tanks and price fill in from the client\'s last visit. Type a charge only to change it (it is then locked).';
     $('#ao-svc-l').textContent = sv ? 'Services the client wants (optional)' : hasMod('orders') ? 'Service' : 'Checklist (optional)';
     $('#ao-tkf').hidden = sv || amc;
@@ -556,7 +556,7 @@
 
     // A survey visit has no team: the supervisor goes
     if (AO.form && AO.form.kind === 'survey') {
-      side.innerHTML = h + '<h3 style="margin-top:14px">Survey visit</h3><p class="sub">No team. The supervisor sees it on their phone (PIN login), ' +
+      side.innerHTML = h + '<h3 style="margin-top:14px">Survey visit</h3><p class="sub">No team. The surveyor sees it on their phone (PIN login), ' +
         'measures every tank and sends the sizes. The quotation is then ready in Orders and on the Dashboard.</p>';
       return;
     }
@@ -906,7 +906,7 @@
     const o = s.order, sg = s.suggestion;
     let h = '<div class="box ok ao-saved"><div>';
     if (isSurvey(o)) h += 'Survey visit <b>#' + o.order_id + '</b> saved for ' + esc(o.client_name) + ', ' + lab(o.sched_date) + ' at ' + fm(mins(o.sched_time)) +
-      '. The supervisor sees it now.';
+      '. The surveyor sees it now.';
     else if (s.assigned) h += word('Order') + ' <b>#' + o.order_id + '</b> for ' + esc(o.client_name) + ' is assigned to <b>' + esc(teamLabel(s.assigned)) + '</b>.';
     else {
       h += word('Order') + ' <b>#' + o.order_id + '</b> saved for ' + esc(o.client_name) + ', ' + lab(o.sched_date) + ' at ' + fm(mins(o.sched_time)) +
@@ -1093,7 +1093,7 @@
      - no team, with a suggestion: "Assign Team A" + a small ▾ to pick another team
      - no team, no suggestion: a light "Assign team…" dropdown */
   function teamCell(o) {
-    if (isSurvey(o)) return '<span class="sub">Supervisor</span>';   // a survey has no team
+    if (isSurvey(o)) return '<span class="sub">Surveyor</span>';   // a survey has no team
     if (o.status === 'done' || o.status === 'cancelled') {
       return o.team ? '<span class="tchip" style="--tc:' + tc(o.team) + '"><i class="tdot"></i>' + esc(teamShort(o.team)) + '</span>' : '<span class="sub">No team</span>';
     }
@@ -1503,7 +1503,7 @@
     const body = orderLine(o) +
       (o.status === 'cancelled' ? '<div class="box ao-cxbox">This order is cancelled' + (o.cancel_reason ? ' (' + esc(o.cancel_reason) + ')' : '') + '. Use Restore to bring it back.</div>' : '') +
       (o.status === 'done' ? '<div class="box ok">This job is done. Changes here only correct the record; nobody is messaged.</div>' : '') +
-      (sv ? '<div class="box">Survey visit: no team and no charge. The supervisor measures the tanks; then use Quotation.</div>' : '') +
+      (sv ? '<div class="box">Survey visit: no team and no charge. The surveyor measures the tanks; then use Quotation.</div>' : '') +
       (o.price_locked && !sv ? '<div class="box">Price locked: ' + esc(lockWhy(o)) + '. Changing tanks or services does not change the charge; type a new charge to change it.' +
         '<label class="ao-ck" style="margin-top:6px"><input type="checkbox" id="ao-e-unlock"> Unlock: work the charge out from the tanks again</label></div>' : '') +
       '<form id="ao-ef" autocomplete="off" novalidate><div class="form-grid">' +
@@ -1818,7 +1818,7 @@
     const done = o.status === 'done', st = o.quote_status, open = done && (st === 'draft' || st === 'sent');
     let body = orderLine(o) + '<p class="ao-qst">' + quotePill(o) +
       (o.quote_sent_at ? ' <span class="sub">sent ' + esc(lab(String(o.quote_sent_at).slice(0, 10))) + ', ' + fm(mins(o.quote_sent_at)) + '</span>' : '') + '</p>';
-    if (!done) body += '<div class="box">The supervisor has not sent the measurements yet. The quotation is ready as soon as they do.</div>';
+    if (!done) body += '<div class="box">The surveyor has not sent the measurements yet. The quotation is ready as soon as they do.</div>';
     else {
       body += '<h4 class="ao-qh">Measured tanks</h4>' + priceHtml(o.price, { totalLabel: 'Quotation' }) +
         (Number(o.quote_amount) !== Number((o.price || {}).total) ? '<p class="sub">Quotation saved at the survey: <b>' + inr(o.quote_amount) + '</b></p>' : '');
@@ -1997,7 +1997,7 @@
       (hasMod('orders') ? ' <span class="pill">' + esc(ctName(o.client_type)) + '</span>' : '') + hourPills(o) + kindPills(o, AO.calDay) +
       '<div class="sub">' + esc(areaName(o.area)) + ' · ' + (o.services || []).map(k => esc(svcShort(k))).join(', ') + ' · ' + stPill(o) +
       (isSurvey(o) && o.status === 'done' ? ' ' + quoteBtn(o) : '') + '</div>') +
-      (isSurvey(o) ? '<span class="sub">Supervisor</span>' : teamChip(o.team)) + '</div>').join('');
+      (isSurvey(o) ? '<span class="sub">Surveyor</span>' : teamChip(o.team)) + '</div>').join('');
 
     $('#ad-cal').innerHTML =
       '<header><div><h2>Calendar</h2><p class="sub">' + word('Every order') + ' lands here the moment it is saved. Colour is the team. Office hours ' +

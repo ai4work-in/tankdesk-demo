@@ -69,7 +69,7 @@ const MockAPI = (function () {
       late_alert_min: 10,    // alert the owner when a team is later than this
       reminder_days: 20,     // remind the owner this many days before a client's next visit
       // Supervisor login (measures tanks before a quotation). Change the PIN in the Settings tab.
-      supervisor_pin: '7070', supervisor_name: 'Supervisor (sample)',
+      supervisor_pin: '7070', supervisor_name: 'Surveyor (sample)',
       // Rate card: price of ONE tank by material and litres (orders.gs tankPrice_)
       cement_base_price: 500,        // cement tank up to cement_base_litres
       cement_base_litres: 5000,
@@ -613,7 +613,8 @@ const MockAPI = (function () {
     'delay_reason', 'delay_min', 'eta_sent', 'customer_confirm', 'dispute', 'overtime_min', 'notes', 'moved_from',
     'whatsapp',    // the driver must know when to CALL the customer instead (not money)
     'tanks', 'crew',   // log book: tank sizes and who did the job (sizes are not money)
-    'days', 'work_days', 'amc_label'];   // multi-day jobs; "AMC 2/4" (a label only, never the contract money)
+    'days', 'work_days', 'amc_label',    // multi-day jobs; "AMC 2/4" (a label only, never the contract money)
+    'measured'];   // true = sizes measured by the supervisor (job from a survey quotation): final (added 2026-10-09)
   const COLLECTOR_FIELDS = ['order_id', 'client_name', 'phone', 'address', 'area', 'balance', 'whatsapp'];
   // The supervisor measures tanks for a quotation: never any money, never the services
   const SUPERVISOR_FIELDS = ['order_id', 'client_name', 'phone', 'client_type', 'address', 'map_link', 'area', 'sched_date',
@@ -792,6 +793,7 @@ const MockAPI = (function () {
     if (s.role === 'driver') {
       const c = o.amc_id ? contractOf(o.amc_id) : null;
       f.amc_label = o.amc_id ? 'AMC ' + o.amc_visit + '/' + (c ? c.visits : '?') : '';
+      f.measured = !!o.from_quote;
       return stripOffModules(pick(f, DRIVER_FIELDS));
     }
     if (s.role === 'collector') return pick(f, COLLECTOR_FIELDS);
@@ -1146,7 +1148,7 @@ const MockAPI = (function () {
     if (kind === 'survey' && !modOn('quotation')) offFail();
     if ((amcId || (amcVisit !== undefined && amcVisit !== null && amcVisit !== '')) && !modOn('amc')) offFail();
     if (kind === 'survey') {
-      if (String(input.team === undefined || input.team === null ? '' : input.team).trim()) fail('BAD_INPUT', 'A survey visit has no team: the supervisor goes.');
+      if (String(input.team === undefined || input.team === null ? '' : input.team).trim()) fail('BAD_INPUT', 'A survey visit has no team: the surveyor goes.');
       delete input.team; delete input.days;
     }
     const clean = cleanOrderInput(input, true, null, { survey: kind === 'survey' });
@@ -1196,7 +1198,7 @@ const MockAPI = (function () {
     const o = getOrder(b.order_id);
     const patch = b.patch || {};
     const typed = Object.prototype.hasOwnProperty.call(patch, 'amount') && String(patch.amount === null ? '' : patch.amount).trim() !== '';
-    if (isSurvey(o) && String(patch.team || '').trim()) fail('BAD_INPUT', 'A survey visit has no team: the supervisor goes.');
+    if (isSurvey(o) && String(patch.team || '').trim()) fail('BAD_INPUT', 'A survey visit has no team: the surveyor goes.');
     const clean = cleanOrderInput(patch, false, o, { survey: isSurvey(o) });
     // The price: an amount typed by the admin is kept (and locked). Otherwise a change of
     // tanks or services works the amount out again, unless the price is locked.
@@ -1268,7 +1270,7 @@ const MockAPI = (function () {
   A['order.assign'] = (b, s) => {
     if (!b.smart) {
       const o = getOrder(b.order_id);
-      if (isSurvey(o)) fail('BAD_STATUS', 'A survey visit has no team: the supervisor goes.');
+      if (isSurvey(o)) fail('BAD_STATUS', 'A survey visit has no team: the surveyor goes.');
       if (o.status === 'done') fail('BAD_STATUS', 'This job is already done.');
       if (isCancelled(o)) fail('BAD_STATUS', 'This order is cancelled. Restore it first.');
       const team = String(b.team || '').trim().toUpperCase();
@@ -1445,6 +1447,8 @@ const MockAPI = (function () {
     if (note.length > 300) fail('BAD_INPUT', 'The note is too long (at most 300 characters).');
     const o = ownOrder(b.order_id, s);   // own team only, never a cancelled job
     if (s.role === 'driver' && o.kind === 'survey') fail('FORBIDDEN', 'This job belongs to another team.');
+    // sizes measured by the supervisor are final (orders.gs orderSizeIssue, added 2026-10-09)
+    if (o.from_quote) fail('BAD_STATUS', 'These sizes were measured by the surveyor. If something is clearly wrong, call the office.');
     addAlert('size_issue', 'warn', o.order_id, (o.team ? 'Team ' + o.team : 'The team') + ' says the tank sizes at ' + o.client_name +
       ' are different: ' + note + '. Check the sizes and the price.');
     return { ok: true, alert_id: db.alerts[db.alerts.length - 1].alert_id };
@@ -2171,7 +2175,7 @@ const MockAPI = (function () {
     o.tanks = tanks;
     // Same as survey.gs: a new line "Supervisor: ..." (or "Office: ..." from an admin). The supervisor's
     // screen shows its own lines in its outgoing bubble (supervisor.js svMyNotes).
-    if (note) o.notes = (o.notes ? o.notes + String.fromCharCode(10) : '') + (s.role === 'admin' ? 'Office' : 'Supervisor') + ': ' + note;
+    if (note) o.notes = (o.notes ? o.notes + String.fromCharCode(10) : '') + (s.role === 'admin' ? 'Office' : 'Surveyor') + ': ' + note;
     o.status = 'done';
     o.done_at = nowIso();
     o.quote_status = 'draft';
@@ -2186,7 +2190,7 @@ const MockAPI = (function () {
   A['quote.send'] = (b, s) => {
     const o = getSurvey(b.order_id);
     if (o.status !== 'done' || !['draft', 'sent'].includes(o.quote_status)) {
-      fail('BAD_STATUS', o.status !== 'done' ? 'The survey is not done yet: the supervisor has not sent the measurements.'
+      fail('BAD_STATUS', o.status !== 'done' ? 'The survey is not done yet: the surveyor has not sent the measurements.'
         : 'This quotation is already ' + o.quote_status + '.');
     }
     o.quote_status = 'sent';

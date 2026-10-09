@@ -417,6 +417,7 @@ a.lnkbtn{display:grid;place-items:center;text-decoration:none;text-align:center;
 .bub.dr-tks{box-shadow:inset 3px 0 0 var(--muted),0 1px .5px rgba(0,0,0,.13)}
 .dr-tkro{margin-top:4px;font-size:15px;line-height:1.5}
 .dr-tknone{margin-top:2px;color:var(--muted);font-size:14px}
+.dr-tkok{margin-top:6px;color:var(--accent);font-weight:600;font-size:14px}   /* "Measured by the supervisor" (added 2026-10-09) */
 .dr-sizebtn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:8px;min-height:48px;border:2px solid var(--line);
   border-radius:24px;background:var(--surface);color:var(--fg);font:inherit;font-size:15px;font-weight:700;cursor:pointer}
 .dr-sizebtn svg{width:18px;height:18px;flex:none}

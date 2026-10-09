@@ -724,8 +724,12 @@ function drTanksBubble(o, canReport) {
   // A report on its way, or not sent (the red bar at the bottom sends it again)
   const sent = s ? '<div class="dr-sizeq' + (s.state === 'failed' ? ' bad' : '') + '">' + esc(TX.size_diff) + ': ' + esc(s.note) + ' · ' +
     (s.state === 'failed' ? tr('મોકલાયું નહીં', 'Not sent') : TX.sending) + '</div>' : '';
+  // Measured by the supervisor (job from a survey quotation): the sizes are final, no "size is different"
+  // button (added 2026-10-09). Sizes the office took from the customer on the phone can still be reported.
+  const measured = o.measured === true && tk.length;
   return WA.bubble('in', '<b>' + TX.tank_sizes + '</b>' + list + sent +
-    (canReport && !s ? '<button type="button" class="dr-sizebtn" data-act="dr-size" data-id="' + o.order_id + '">' + DR_RULER + '<span>' + esc(TX.size_diff) + '</span></button>' : ''),
+    (measured ? '<div class="dr-tkok">✓ ' + tr('સર્વેયરે માપેલું', 'Measured by the surveyor') + '</div>'
+      : canReport && !s ? '<button type="button" class="dr-sizebtn" data-act="dr-size" data-id="' + o.order_id + '">' + DR_RULER + '<span>' + esc(TX.size_diff) + '</span></button>' : ''),
     '', { who: TX.office, cls: 'dr-tks' });
 }
 
@@ -1316,11 +1320,12 @@ onAct('dr-finish', btn => { DR.finish[btn.dataset.id] = true; drWipSave(); drSho
    the red bar "મોકલાયું નહીં · ફરી મોકલો" sends it again (also automatically when online). */
 // [key, words in the note to the office (English: admin screens are English), chip label on screen]
 const DR_SIZE_CHIPS = [
-  ['more', 'More tanks', () => tr('વધારે ટાંકી છે', 'More tanks')],
-  ['fewer', 'Fewer tanks', () => tr('ઓછી ટાંકી છે', 'Fewer tanks')],
-  ['bigger', 'Bigger', () => tr('ટાંકી મોટી છે', 'Bigger')],
-  ['smaller', 'Smaller', () => tr('ટાંકી નાની છે', 'Smaller')],
-  ['other', 'Other', () => tr('બીજું', 'Other')]
+  // Clear words (9 Oct): the NUMBER of tanks or the SIZE of a tank, compared with the list on the job
+  ['more', 'More tanks than listed', () => tr('લખેલી કરતાં વધુ ટાંકીઓ છે', 'More tanks than listed')],
+  ['fewer', 'Fewer tanks than listed', () => tr('લખેલી કરતાં ઓછી ટાંકીઓ છે', 'Fewer tanks than listed')],
+  ['bigger', 'A tank is bigger than listed', () => tr('ટાંકીનું માપ લખેલા કરતાં મોટું છે', 'A tank is bigger than listed')],
+  ['smaller', 'A tank is smaller than listed', () => tr('ટાંકીનું માપ લખેલા કરતાં નાનું છે', 'A tank is smaller than listed')],
+  ['other', 'Something else', () => tr('બીજું કંઈ અલગ છે', 'Something else is different')]   // not "બીજું" alone: it also means "second"
 ];
 function drSizeSheet() {
   const z = DR.sizeSheet, o = z && drOrder(z.id);
@@ -1470,7 +1475,7 @@ function drDayEndSheet() {
           '<div class="wa-chips dr-de-ch" role="group" aria-label="' + esc(tr('નવી તારીખ', 'New date')) + '">' +
           chip('dr-de-d', i, d1, tr('કાલે', 'Tomorrow') + ' · ' + labT(d1), it.new_date === d1) +
           chip('dr-de-d', i, d2, tr('પરમ દિવસે', 'Day after') + ' · ' + labT(d2), it.new_date === d2) +
-          chip('dr-de-pick', i, '', other ? labT(it.new_date) : tr('+ બીજી તારીખ', '+ Another date'), other) + '</div>' +
+          chip('dr-de-pick', i, '', other ? labT(it.new_date) : tr('+ તારીખ પસંદ કરો', '+ Pick a date'), other) + '</div>' +
           (it.pick || other ? '<input type="date" class="fsel dr-de-date" data-chg="dr-de-date" data-i="' + i + '" min="' + d1 + '" value="' + esc(other ? it.new_date : '') +
             '" aria-label="' + esc(tr('નવી તારીખ પસંદ કરો', 'Pick a new date')) + '">' : '') +
           '</div></div>';

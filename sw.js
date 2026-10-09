@@ -15,7 +15,7 @@
    service worker takes over at once and clears the old saved files.
    ========================================================================== */
 
-const SHELL_CACHE = 'td-demo-v25';   // bump this on every deploy
+const SHELL_CACHE = 'td-demo-v28';   // bump this on every deploy
 const FONT_CACHE = 'td-fonts-v1';    // Google Fonts (rarely needs a bump)
 
 // The app files to keep on the phone
