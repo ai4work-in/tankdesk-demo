@@ -529,7 +529,8 @@ const MockAPI = (function () {
   // AMC, quotation approved by an admin), as orders.gs addAlert (usability round 2026-10-08)
   function addAlert(type, sev, orderId, text, seen) {
     const at = nowIso();
-    db.alerts.push({ alert_id: alertId(at), created_at: at, type, sev, order_id: orderId || '', text, seen: seen === true });
+    db.alerts.push({ alert_id: alertId(at), created_at: at, type, sev, order_id: orderId || '', text, seen: seen === true,
+      resolved_at: '', resolved_by: '' });   // alerts.resolve (added 2026-10-09)
   }
   // Pretend to send a WhatsApp message: only written to the fake MessageLog
   // (the real server writes the Gujarati text; the mock writes the params)
@@ -1040,6 +1041,7 @@ const MockAPI = (function () {
     'payment.cancel': ['admin'],   // undo a wrong payment with a minus row (added 2026-10-08)
     'report.overtime': ['admin'], 'report.revenue': ['admin'],
     'alerts.list': ['admin'], 'alerts.seen': ['admin'],
+    'alerts.resolve': ['admin'],   // mark one alert as dealt with, or open it again (added 2026-10-09)
     'client.list': ['admin'], 'client.history': ['admin'], 'client.lookup': ['admin'],
     'client.setNextVisit': ['admin'], 'reminders.list': ['admin'],
     'client.setWhatsapp': ['admin'], 'order.confirm': ['driver'],
@@ -1483,8 +1485,16 @@ const MockAPI = (function () {
       const reason = String(b.reason === undefined || b.reason === null ? '' : b.reason).trim().slice(0, 200);
       o.status = CANCELLED; o.cancel_reason = reason; o.cancelled_at = nowIso();   // the team is kept for restore
       o.cancelled_by = s.name || '';
+      const notify = b.notify === true;
       addAlert('info', 'ok', o.order_id, 'Order #' + o.order_id + ' for ' + o.client_name + ' (' + o.sched_date + ' ' + fm(mins(o.sched_time)) +
-        ') was cancelled. Reason: ' + (reason || 'not given') + '. Customer not messaged.', true);   // office's own action: seen
+        ') was cancelled. Reason: ' + (reason || 'not given') + '.' + (notify ? '' : ' Customer not messaged.'), true);   // office's own action: seen
+      // notify:true (added 2026-10-09): the "cancelled" WhatsApp with the booked date and time (orders.gs orderCancel)
+      if (notify) {
+        const sent = waSend(o, 'cancelled', { date: o.sched_date, time: o.sched_time });
+        if (!sent) addAlert('call', 'warn', o.order_id, 'Call ' + o.client_name + ' (+91 ' + phoneText(o.phone) + '): their booking on ' + o.sched_date + ' ' +
+          fm(mins(o.sched_time)) + ' is cancelled. No WhatsApp, so they were not messaged.');
+        return { order: filterForRole(o, s), whatsapp: sent ? 'yes' : 'no' };
+      }
     }
     return { order: filterForRole(o, s) };
   };
@@ -1895,6 +1905,7 @@ const MockAPI = (function () {
   /* ---------- alerts (orders.gs) ---------- */
   // Newest first, at most 200
   A['alerts.list'] = b => {
+    db.alerts.forEach(a => { if (a.resolved_at === undefined) { a.resolved_at = ''; a.resolved_by = ''; } });   // sample rows made before 9 Oct
     const L = db.alerts.slice().sort((x, y) => x.created_at === y.created_at ? (x.alert_id < y.alert_id ? 1 : -1) : (x.created_at < y.created_at ? 1 : -1));
     const list = b.unseen_only ? L.filter(a => !a.seen).slice(0, 200) : L.slice(0, 200).map(withAlertOrder);
     // Only real problems count (bad / warn), as orders.gs
@@ -1916,6 +1927,18 @@ const MockAPI = (function () {
     let updated = 0;
     db.alerts.forEach(a => { if (!a.seen && (!ids || ids.includes(String(a.alert_id)))) { a.seen = true; updated++; } });
     return { updated };
+  };
+
+  // alerts.resolve {alert_id, undo?} -> {alert} (orders.gs alertsResolve, added 2026-10-09):
+  // resolved_at / resolved_by = when and which admin; a resolved alert counts as seen.
+  // undo:true opens it again (stays seen). Resolving twice keeps the first time.
+  A['alerts.resolve'] = (b, s) => {
+    const id = String(b.alert_id === undefined || b.alert_id === null ? '' : b.alert_id).trim();
+    if (!id) fail('BAD_INPUT', 'Which alert? alert_id is missing.');
+    const a = db.alerts.find(x => String(x.alert_id) === id) || fail('NOT_FOUND', 'Alert not found. It may be in the monthly archive (OldAlerts).');
+    if (b.undo === true) { a.resolved_at = ''; a.resolved_by = ''; }
+    else if (!a.resolved_at) { a.resolved_at = nowIso(); a.resolved_by = s.name || 'Admin'; a.seen = true; }
+    return { alert: withAlertOrder(Object.assign({}, a)) };
   };
 
   /* ---------- clients (clients.gs, admin only). A client = one phone number. ---------- */

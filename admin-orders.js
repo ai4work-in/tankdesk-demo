@@ -410,6 +410,7 @@
       '<div class="fld"><label for="ao-time">Time slot</label><select id="ao-time" data-chg="ao-time">' + slotOptions('11:00') + '</select></div>' +
       '<div class="fld" id="ao-days-f"' + (hasMod('multiday') ? '' : ' hidden') + '><label for="ao-days">How many days</label><select id="ao-days">' + dayOptions(1) + '</select></div>' +
       '<div class="fld" id="ao-amt-f"><label for="ao-amt">' + (priced ? 'Service charge (₹)' : 'Amount (₹, optional)') + '</label><input id="ao-amt" inputmode="numeric" data-inp="ao-amt" placeholder="0"></div>' +
+      '<div class="full" id="ao-dup" aria-live="polite" hidden></div>' +   // "already booked that day" (added 2026-10-09)
       '<div class="full" id="ao-price" aria-live="polite"></div>' +
       // The hint sits right under Next visit (usability round 2026-10-08)
       (hasMod('clients') ? '<div class="fld"><label for="ao-nv">Next visit (optional)</label><input id="ao-nv" type="date" aria-describedby="ao-nv-n">' +
@@ -443,6 +444,7 @@
     paintWa();
     paintSide(true);
     if (p.phone) lookup($('#ao-phone').value);   // (does nothing without the Clients add-on)
+    if (p.phone) dupSoon();                        // already booked that day? (added 2026-10-09)
   }
 
   /* ---------- Type: cleaning job or survey visit; the AMC box ---------- */
@@ -661,6 +663,10 @@
       box.innerHTML = '<div class="ao-ret">' + WA.avatar(c.client_name || phone, { small: true }) +
         WA.bubble('in', '<b>Returning client</b> · ' + n + ' job' + (n === 1 ? '' : 's') + (c.whatsapp === 'no' && App.noWaPill ? ' ' + App.noWaPill() : '') +
           '<div>Last service: ' + (c.last_date ? esc(lab(c.last_date)) : '-') + (svc ? ' · ' + esc(svc) : '') + '</div>' +
+          // Money still owed and past complaints (added 2026-10-09): a warning only, the order can still be booked
+          (Number(c.balance) > 0 ? '<div class="ao-owes"><span class="pill bad">Owes ' + inr(c.balance) + '</span> from earlier jobs. Mention it on the phone.</div>' : '') +
+          (Number(c.disputes) > 0 ? '<div class="ao-owes"><span class="pill warn">' + c.disputes + ' past complaint' + (c.disputes === 1 ? '' : 's') + '</span> The customer said "No" after a job. ' +
+            'See the history in Open client.</div>' : '') +
           // Log book: the saved tank sizes are copied onto the new order (the driver checks them at the site)
           ((c.tanks || []).length ? '<div class="ao-tanks">Tanks from last visit: ' + c.tanks.map(t => '<span class="num">' + esc(tankText(t)) + '</span>').join('; ') +
             ' <span class="sub">(filled in below)</span></div>' : '') +
@@ -694,19 +700,96 @@
     });
   });
 
+  /* ---------- double booking (added 2026-10-09) ----------
+     When the phone and the date are both filled in, the day's orders are fetched once
+     (order.list, cancelled orders are never in it) and any order of the same phone that day
+     is shown above the price: "Already booked: #1042, Thu 8 Oct, 11:00 AM, Team B".
+     It is a warning: Save asks once more, then books it anyway (e.g. a second building). */
+  const dayMemo = {};   // {date: [orders]} of the dates looked at; emptied after a save
+  let dupTimer = null;
+  const dupSoon = () => { clearTimeout(dupTimer); dupTimer = setTimeout(paintDup, 400); };
+  // fresh = read the day again (on Save in Edit / Reschedule, so another admin's booking counts too)
+  async function dayOrders(date, fresh) {
+    if (!dayMemo[date] || fresh) dayMemo[date] = (await api('order.list', { from: date, to: date })).orders || [];
+    return dayMemo[date];
+  }
+  // The client's orders that day. exceptId = the order being edited or moved (it never clashes with itself).
+  async function sameDay(phone, date, exceptId, fresh) {
+    if (!phone || !date) return [];
+    return (await dayOrders(date, fresh)).filter(o => o.phone === phone && Number(o.order_id) !== Number(exceptId || 0));
+  }
+  // opts.btn = the Save button's words; opts.noOpen = no "Open" link (inside a dialog: it would close it)
+  function dupHtml(list, opts) {
+    opts = opts || {};
+    return '<div class="box warn ao-dupb"><b>Already booked that day.</b> ' + list.map(o =>
+      '<span class="ao-dupo">#' + esc(o.order_id) + ' · ' + esc(lab(o.sched_date)) + ', ' + fm(mins(o.sched_time)) + ' · ' +
+      (isSurvey(o) ? 'survey visit' : o.team ? esc(teamLabel(o.team)) : 'no team yet') + (o.status === 'done' ? ' · done' : '') +
+      (opts.noOpen ? '' : ' <button type="button" class="lnk" data-act="ao-dup-open" data-id="' + esc(o.order_id) + '" data-d="' + esc(o.sched_date) + '">Open</button>') + '</span>').join(' ') +
+      '<div class="sub">' + (opts.btn ? 'Pick another date, or press ' + esc(opts.btn) + ' again to keep both jobs on the same day.'
+        : 'Change the date, or press Save again to book a second job the same day.') + '</div></div>';
+  }
+  /* The same check in the Edit and Reschedule dialogs (added 2026-10-09). The box #ao-mdup
+     shows while the date (or, in Edit, the phone) is changed; Save asks once, then saves. */
+  let mdupTimer = null;
+  function modalDupSoon(getPhone, getDate, btnWord) {
+    clearTimeout(mdupTimer);
+    mdupTimer = setTimeout(async () => {
+      const box = $('#ao-mdup'), o = ED.o;
+      if (!box || !o) return;
+      const phone = getPhone(), date = getDate(), key = phone + '|' + date;
+      const changed = date !== o.sched_date || phone !== o.phone;
+      if (!phone || !date || !changed) { box.hidden = true; box.innerHTML = ''; return; }
+      try {
+        const list = await sameDay(phone, date, o.order_id);
+        if (!$('#ao-mdup') || ED.o !== o || getPhone() + '|' + getDate() !== key) return;   // changed meanwhile
+        box.hidden = !list.length;
+        box.innerHTML = list.length ? dupHtml(list, { btn: btnWord, noOpen: true }) : '';
+      } catch (e) { /* only a warning */ }
+    }, 400);
+  }
+  // On Save: true = go on saving; false = the warning is shown, the next Save goes through
+  async function modalDupOk(phone, date, btnWord) {
+    const o = ED.o;
+    if (!o || (date === o.sched_date && phone === o.phone)) return true;   // same day and phone: nothing new
+    const key = o.order_id + '|' + phone + '|' + date;
+    if (ED.dupOk === key) return true;
+    let list = [];
+    try { list = await sameDay(phone, date, o.order_id, true); } catch (e) { return true; }   // could not check: save
+    if (!list.length) return true;
+    ED.dupOk = key;
+    const box = $('#ao-mdup');
+    if (box) { box.hidden = false; box.innerHTML = dupHtml(list, { btn: btnWord, noOpen: true }); }
+    modalErr('This client already has ' + (list.length === 1 ? 'order #' + list[0].order_id + ' at ' + fm(mins(list[0].sched_time)) : list.length + ' orders') +
+      ' on ' + lab(date) + '. Press ' + btnWord + ' again to keep both.');
+    return false;
+  }
+  async function paintDup() {
+    const box = $('#ao-dup');
+    if (!box) return;
+    const phone = normPhone($('#ao-phone').value), date = $('#ao-date').value, key = phone + '|' + date;
+    if (!phone || !date) { box.hidden = true; box.innerHTML = ''; return; }
+    try {
+      const list = await sameDay(phone, date);
+      if (!$('#ao-dup') || normPhone($('#ao-phone').value) + '|' + $('#ao-date').value !== key) return;   // typed on meanwhile
+      box.hidden = !list.length;
+      box.innerHTML = list.length ? dupHtml(list) : '';
+    } catch (e) { /* only a warning: the server still saves the order */ }
+  }
+  onAct('ao-dup-open', el => { if (App.openOrder) App.openOrder(el.dataset.id, el.dataset.d); });
+
   /* ---------- form typing and picking ---------- */
-  onInp('ao-phone', el => lookup(el.value));
+  onInp('ao-phone', el => { lookup(el.value); dupSoon(); });
   onInp('ao-addr', el => {
     if (!AO.form.manualArea) $('#ao-area').value = guessArea(el.value);
     refreshSide();
   });
-  onInp('ao-date', () => { paintDateChips(); refreshSide(); });
+  onInp('ao-date', () => { paintDateChips(); refreshSide(); dupSoon(); });
   // Today / Tomorrow chips above the date box (usability round 2026-10-08)
   function paintDateChips() {
     const d = $('#ao-date') ? $('#ao-date').value : '';
     $$('#ad-new [data-act="ao-dq"]').forEach(b => b.setAttribute('aria-pressed', String(!!d && d === addD(todayIso(), Number(b.dataset.n)))));
   }
-  onAct('ao-dq', el => { $('#ao-date').value = addD(todayIso(), Number(el.dataset.n)); paintDateChips(); paintSide(); });
+  onAct('ao-dq', el => { $('#ao-date').value = addD(todayIso(), Number(el.dataset.n)); paintDateChips(); paintSide(); dupSoon(); });
   // Clear form: an empty form, as after a save (what was typed is gone)
   onAct('ao-clear', () => {
     AO.form = freshForm();
@@ -761,6 +844,20 @@
       err.hidden = false;
       return;
     }
+    // The same client already booked that day: warn once; a second click on Save books it anyway
+    if (f.dupOk !== phone + '|' + date) {
+      let same = [];
+      try { same = await sameDay(phone, date); } catch (ex) { same = []; }   // could not check: save as normal
+      if (same.length) {
+        f.dupOk = phone + '|' + date;
+        err.textContent = 'This client already has ' + (same.length === 1 ? 'order #' + same[0].order_id + ' at ' + fm(mins(same[0].sched_time))
+          : same.length + ' orders') + ' on ' + lab(date) + '. Change the date, or press ' + (sv ? 'Save survey visit' : word('Save order')) + ' again to book it anyway.';
+        err.hidden = false;
+        const box = $('#ao-dup');
+        if (box) { box.hidden = false; box.innerHTML = dupHtml(same); }
+        return;
+      }
+    }
     err.hidden = true;
 
     const order = {
@@ -786,6 +883,7 @@
       const r = await api('order.create', { order: order });
       dropSaved();
       Object.keys(sideMemo).forEach(k => delete sideMemo[k]);   // job counts per area changed
+      Object.keys(dayMemo).forEach(k => delete dayMemo[k]);     // the day now has one more order
       AO.saved = { order: r.order, suggestion: isSurvey(r.order) ? null : r.suggestion || null, assigned: '' };
       AO.hi = r.order.order_id;
       toast('Order #' + r.order.order_id + ' saved.');
@@ -1247,6 +1345,9 @@
   const MOVE_WHY = [['customer', 'Customer asked'], ['team', 'Team not available'], ['weather', 'Weather'], ['other', 'Other']];
   // Reasons for cancelling (saved as the words themselves in cancel_reason)
   const CANCEL_WHY = ['Customer cancelled', 'Duplicate', 'Wrong entry', 'Other'];
+  // Reasons where the customer is told on WhatsApp by default (added 2026-10-09). A duplicate or
+  // a wrong entry was the office's own mistake: the customer still has a booking, so no message.
+  const CANCEL_TELL = ['Customer cancelled', 'Other'];
 
   // "Cancelled · Customer cancelled" pill
   function cxPill(o) {
@@ -1334,6 +1435,7 @@
     const m = box('ao-modal');
     m.hidden = true; m.innerHTML = '';
     document.body.classList.remove('ao-noscroll');
+    ED.last = ED.o;   // the order the dialog was about (afterChange forgets its old copy)
     ED.o = null;
     if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
   }
@@ -1363,8 +1465,14 @@
 
   /* After any action: drop the saved lists and let the open screen load fresh data in the background */
   function afterChange(newPhone, oldPhone) {
+    // The changed order's remembered copy is out of date (its date, status...): forget it, so the
+    // next Edit / Reschedule fetches it again even when it is not on the list shown (fixed 2026-10-09)
+    const was = ED.o || ED.last;
+    if (was) delete known[was.order_id];
+    ED.last = null;
     dropSaved();
     Object.keys(sideMemo).forEach(k => delete sideMemo[k]);   // job counts per area may have changed
+    Object.keys(dayMemo).forEach(k => delete dayMemo[k]);     // the double-booking check reads the days again
     if (!App.session || App.session.role !== 'admin') return;
     // The open client page follows the order to its corrected phone number
     if (App.adminTab === 'clients' && newPhone && newPhone !== oldPhone && App.openClient) { App.openClient(newPhone); return; }
@@ -1377,7 +1485,7 @@
     const o = known[Number(el.dataset.id)];
     closeMenu();
     if (!o) return;
-    ED.o = o;
+    ED.o = o; ED.dupOk = '';
     ED.svcs = (o.services || []).slice();
     // The charge follows the price from the tanks / services (price.quote) until the owner
     // types a charge herself (then it is saved as typed and locked). A locked price stays.
@@ -1404,7 +1512,7 @@
       '<div class="fld"><label for="ao-e-type">Client type</label><select id="ao-e-type">' + (o.client_type ? '' : opt('', '-', '')) +
       clientTypes().map(c => opt(c.key, c.name_en, o.client_type)).join('') + '</select></div>') +
       '<div class="fld"><label for="ao-e-name">Client name</label><input id="ao-e-name" value="' + esc(o.client_name) + '"></div>' +
-      '<div class="fld"><label for="ao-e-phone">Phone number</label><input id="ao-e-phone" inputmode="numeric" value="' + esc(phoneText(o.phone)) + '"></div>' +
+      '<div class="fld"><label for="ao-e-phone">Phone number</label><input id="ao-e-phone" inputmode="numeric" data-inp="ao-e-phone" value="' + esc(phoneText(o.phone)) + '"></div>' +
       '<div class="fld full"><label for="ao-e-addr">Address</label><textarea id="ao-e-addr" rows="2" data-inp="ao-e-addr">' + esc(o.address) + '</textarea></div>' +
       '<div class="fld"><label for="ao-e-area">Area</label><select id="ao-e-area" data-chg="ao-e-area">' + opt('', 'Other area', o.area || '') +
       areas().map(a => opt(a.key, a.name_en, o.area)).join('') + '</select></div>' +
@@ -1429,6 +1537,7 @@
           // No WhatsApp: no message can go; keep notify on so the office gets a "call" reminder alert
           ? '<input type="checkbox" id="ao-e-notify" checked hidden><div><b>No WhatsApp: call the customer</b> <a href="tel:+' + esc(o.phone) + '">' + esc(phoneText(o.phone)) + '</a></div>'
           : '<label class="ao-ck"><input type="checkbox" id="ao-e-notify" checked> Notify customer on WhatsApp</label>') + '</div>' : '') +
+      '<div id="ao-mdup" aria-live="polite" hidden></div>' +   // "already booked that day" (added 2026-10-09)
       '<p class="err" id="ao-merr" role="alert" hidden></p></form>';
     openModal('ao-panel', sv ? 'Edit survey visit' : 'Edit order', body,
       '<button type="button" class="btn" data-act="ao-mclose">Close</button>' +
@@ -1497,8 +1606,10 @@
     if (moved && d) $('#ao-e-mvt').innerHTML = 'This moves the job from <b>' + esc(lab(o.sched_date)) + ', ' + fm(mins(o.sched_time)) + '</b> to <b>' +
       esc(lab(d)) + ', ' + fm(mins(t)) + '</b>. The team stays the same.';
   }
-  onInp('ao-e-when', editWhenNote);
+  const editDupSoon = () => modalDupSoon(() => normPhone(($('#ao-e-phone') || {}).value || ''), () => ($('#ao-e-date') || {}).value || '', 'Save changes');
+  onInp('ao-e-when', () => { editWhenNote(); editDupSoon(); });
   onChg('ao-e-when', editWhenNote);
+  onInp('ao-e-phone', editDupSoon);
 
   onAct('ao-e-save', async btn => {
     const o = ED.o;
@@ -1519,6 +1630,8 @@
       : (nv && nv <= date) ? 'Next visit must be after the service date.'
       : '';
     if (bad) { modalErr(bad); return; }
+    // The client already has another order on the new day (or the corrected phone does): ask once
+    if (!(await modalDupOk(phone, date, 'Save changes'))) return;
 
     // Send only what changed
     const patch = {};
@@ -1572,12 +1685,12 @@
     const o = known[Number(el.dataset.id)];
     closeMenu();
     if (!o) return;
-    ED.o = o; ED.why = 'customer';
+    ED.o = o; ED.why = 'customer'; ED.dupOk = '';
     const t = todayIso();
     // No date chosen yet (usability round 2026-10-08): the owner picks it, nothing is pre-filled
     const body = orderLine(o) +
       '<div class="form-grid">' +
-      '<div class="fld"><label for="ao-m-date">New date</label><input id="ao-m-date" type="date" min="' + t + '" value=""></div>' +
+      '<div class="fld"><label for="ao-m-date">New date</label><input id="ao-m-date" type="date" data-inp="ao-m-date" min="' + t + '" value=""></div>' +
       '<div class="fld"><label for="ao-m-time">Time slot</label><select id="ao-m-time">' + slotsWith(o.sched_time) + '</select></div>' +
       '</div>' +
       '<div class="fld"><span class="lbl">Why is it moving?</span>' + reasonChips('ao-m-why', MOVE_WHY, ED.why) + '</div>' +
@@ -1586,12 +1699,14 @@
         ? '<input type="checkbox" id="ao-m-notify" checked hidden>' + callBox(o, 'with the new date and time:')
         : '<label class="ao-ck"><input type="checkbox" id="ao-m-notify" checked> Notify customer on WhatsApp</label>') +
       '<p class="sub">The team stays the same; change it in Orders if needed.</p>' +
+      '<div id="ao-mdup" aria-live="polite" hidden></div>' +   // "already booked that day" (added 2026-10-09)
       '<p class="err" id="ao-merr" role="alert" hidden></p>';
     openModal('dlg', 'Reschedule order', body,
       '<button type="button" class="btn" data-act="ao-mclose">Close</button>' +
       '<button type="button" class="btn pri" data-act="ao-m-save">Move order</button>');
   });
   onAct('ao-m-why', el => pickChip(el, 'why'));
+  onInp('ao-m-date', () => modalDupSoon(() => (ED.o || {}).phone, () => ($('#ao-m-date') || {}).value || '', 'Move order'));
   onAct('ao-m-save', async btn => {
     const o = ED.o;
     if (!o) return;
@@ -1599,6 +1714,7 @@
     if (!date) { modalErr('Pick the new date.'); return; }
     if (date < todayIso()) { modalErr('The new date cannot be in the past.'); return; }
     if (date === o.sched_date && time === o.sched_time) { modalErr('Pick a different date or time.'); return; }
+    if (!(await modalDupOk(o.phone, date, 'Move order'))) return;   // the client already has another order that day: ask once
     busy(btn, 'Moving…'); modalErr('');
     try {
       await api('order.reschedule', { items: [{ order_id: o.order_id, new_date: date, new_time: time, reason: ED.why || 'other', notify: notify }] });
@@ -1617,28 +1733,39 @@
     const o = known[Number(el.dataset.id)];
     closeMenu();
     if (!o) return;
-    ED.o = o; ED.cx = CANCEL_WHY[0];
+    ED.o = o; ED.cx = CANCEL_WHY[0]; ED.cxTouched = false;
     const body = orderLine(o) +
       '<div class="fld"><span class="lbl">Reason</span>' + reasonChips('ao-c-why', CANCEL_WHY, ED.cx) + '</div>' +
       '<div class="fld"><label for="ao-c-note">Details (optional)</label><input id="ao-c-note" maxlength="150" placeholder="e.g. booked with another agency"></div>' +
-      '<p class="sub">The customer is not messaged. The job disappears from the team\'s list, Team routes and the Calendar. You can restore it later.</p>' +
-      (noWa(o) ? callBox(o, 'if they need to know:') : '') +
+      // Tell the customer (added 2026-10-09): WhatsApp "cancelled" with the booked date and time
+      (noWa(o)
+        ? '<input type="checkbox" id="ao-c-notify" hidden>' + callBox(o, 'if they need to know:')
+        : '<label class="ao-ck"><input type="checkbox" id="ao-c-notify" data-chg="ao-c-notify"' + (CANCEL_TELL.includes(ED.cx) ? ' checked' : '') + '> Tell the customer on WhatsApp</label>') +
+      '<p class="sub">The job disappears from the team\'s list, Team routes and the Calendar. You can restore it later.</p>' +
 
       '<p class="err" id="ao-merr" role="alert" hidden></p>';
     openModal('dlg', 'Cancel order #' + o.order_id + '?', body,
       '<button type="button" class="btn" data-act="ao-mclose">Keep order</button>' +
       '<button type="button" class="btn danger" data-act="ao-c-save">Cancel order</button>');
   });
-  onAct('ao-c-why', el => pickChip(el, 'cx'));
+  onAct('ao-c-why', el => {
+    pickChip(el, 'cx');
+    // the tick follows the reason until it is changed by hand
+    const nb = $('#ao-c-notify');
+    if (nb && !nb.hidden && !ED.cxTouched) nb.checked = CANCEL_TELL.includes(ED.cx);
+  });
+  onChg('ao-c-notify', () => { ED.cxTouched = true; });
   onAct('ao-c-save', async btn => {
     const o = ED.o;
     if (!o) return;
     const note = ($('#ao-c-note').value || '').trim();
     const reason = (ED.cx || 'Other') + (note ? ': ' + note : '');
+    const nb = $('#ao-c-notify'), notify = !!(nb && !nb.hidden && nb.checked);
     busy(btn, 'Cancelling…'); modalErr('');
     try {
-      await api('order.cancel', { order_id: o.order_id, reason: reason });
-      toast('Order #' + o.order_id + ' cancelled. It shows greyed out in Orders → All.');
+      const r = await api('order.cancel', { order_id: o.order_id, reason: reason, notify: notify });
+      toast('Order #' + o.order_id + ' cancelled' + (r.whatsapp === 'yes' ? '. Customer messaged on WhatsApp' : r.whatsapp === 'no' ? '. No WhatsApp: call ' + phoneText(o.phone) : '') +
+        '. It shows greyed out in Orders → All.');
       closeModal();
       afterChange();
     } catch (e) {
@@ -1657,6 +1784,7 @@
       const n = r.order || o;
       toast('Order #' + id + ' restored' + (n.team ? ' for Team ' + n.team : ' (no team yet)') + ', ' + lab(n.sched_date) + '.');
       AO.hi = id;
+      delete known[id];
       afterChange();
     } catch (e) { fail(e); }
   });

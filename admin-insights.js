@@ -32,6 +32,7 @@
   const S = {
     clients: { q: '', phone: '', all: null },  // search text, open client's phone ('' = none), full client list for instant search
     pay: { area: '' },                // area filter on the ledger ('' = all)
+    al: { view: 'todo' },             // Dashboard alerts: 'todo' (problems not resolved yet) or 'all'
     ot: { range: 'today', team: '' }  // overtime range and team filter
   };
 
@@ -290,8 +291,9 @@
         '<span><i class="tdot" style="--tc:var(--accent-soft);outline:1px dashed var(--accent)"></i> Booked, not done ' + inr(rev.booked_total - rev.done_total) + '</span>' +
         '<span>Collected ' + inr(rev.collected) + '</span></div>' : '<div class="empty">The week chart could not load. <button class="lnk" data-act="ins-retry">Try again</button></div>') + '</div>' +
         '<div class="card ins-flush"><div class="ins-h3"><h3>Alerts' + (unseen ? ' <span class="pill bad">' + unseen + ' new</span>' : '') + '</h3>' +
-        (unseen ? '<button class="lnk" style="font-size:12px" data-act="ins-seen">Mark all seen</button>' : '') + '</div>' +
-        (al ? alertFeed(al.alerts, 'Alerts from the field show up here.') : '<div class="empty ins-m">Alerts could not load.</div>') + '</div></div>' +
+        '<div class="ins-alh">' + (unseen ? '<button class="lnk" style="font-size:12px" data-act="ins-seen">Mark all seen</button>' : '') + alertViewSeg(al) + '</div></div>' +
+        (al ? alertFeed(alertsShown(al.alerts), S.al.view === 'todo' ? 'Nothing to do. Problems from the field stay here until someone marks them resolved.' : 'Alerts from the field show up here.')
+          : '<div class="empty ins-m">Alerts could not load.</div>') + '</div></div>' +
 
         // Teams today + visits due (without Clients: Teams today on its own)
         (withDue ? '<div class="two">' : '') + '<div class="card' + (withDue ? '' : ' ins-sec') + '"><h3>Teams today</h3><div class="tl">' + (ol ? teamsToday(td, ot ? ot.by_team : []) : '<div class="sub">Today\'s jobs could not load.</div>') + '</div></div>' +
@@ -333,25 +335,42 @@
       : type === 'price_diff' ? WA.icons.pay   // measured tanks differ from the locked (quoted) price
       : type === 'quote_yes' ? ICON.chat : ICON.alert;
   }
+  /* Resolve (added 2026-10-09): a problem alert (Act now / Check) stays on the "To do" list until
+     an admin taps "Resolved" (alerts.resolve). It then shows greyed out under "All" with who
+     resolved it, and "Undo" opens it again. Info notes (payments collected, the office's own
+     moves) are never "to do". */
+  const isProblem = a => a.sev === 'bad' || a.sev === 'warn';
+  const isTodo = a => isProblem(a) && !a.resolved_at;
+  const alertsShown = list => S.al.view === 'todo' ? (list || []).filter(isTodo) : (list || []);
+  function alertViewSeg(al) {
+    const todo = al ? al.alerts.filter(isTodo).length : 0;
+    const b = (v, txt) => '<button data-act="ins-al-view" data-v="' + v + '" aria-pressed="' + (S.al.view === v) + '">' + txt + '</button>';
+    return '<div class="ins-seg ins-alseg" role="group" aria-label="Which alerts to show">' + b('todo', 'To do' + (todo ? ' ' + todo : '')) + b('all', 'All') + '</div>';
+  }
   function alertFeed(alerts, emptyText) {
     if (!alerts || !alerts.length) return '<div class="empty ins-m">' + esc(emptyText) + '</div>';
     return '<div class="ins-feed">' + alerts.map(a => {
-      const sev = SEV_WORD[a.sev] ? a.sev : 'ok';
-      return '<div class="ins-fi' + (a.seen === false ? ' new' : '') + '">' +
-        WA.avatar('', { small: true, color: SEV_COLOR[sev], icon: alertIcon(a.type) }) +
+      const sev = SEV_WORD[a.sev] ? a.sev : 'ok', res = !!a.resolved_at;
+      return '<div class="ins-fi' + (a.seen === false ? ' new' : '') + (res ? ' res' : '') + '">' +
+        WA.avatar('', { small: true, color: res ? 'var(--muted)' : SEV_COLOR[sev], icon: alertIcon(a.type) }) +
         '<div class="mid"><div class="l1"><span class="tx">' + esc(a.text) + '</span><time>' + esc(feedTime(a.created_at)) + '</time></div>' +
-        '<div class="l2"><span class="sub">' + SEV_WORD[sev] + (a.order_id ? ' · order #' + esc(a.order_id) : '') + '</span>' +
-        (a.seen === false ? '<span class="bd bad">new</span>' : '') + '</div>' + alertActs(a) + '</div></div>';
+        '<div class="l2"><span class="sub">' + (res ? '\u2713 Resolved' + (a.resolved_by ? ' by ' + esc(a.resolved_by) : '') + ' · ' + esc(feedTime(a.resolved_at)) : SEV_WORD[sev]) +
+        (a.order_id ? ' · order #' + esc(a.order_id) : '') + '</span>' +
+        (a.seen === false ? '<span class="bd bad">new</span>' : '') + '</div>' + (res ? resolvedActs(a) : alertActs(a)) + '</div></div>';
     }).join('') + '</div>';
   }
+  // A resolved alert: only "Undo" (opens it again)
+  const resolvedActs = a => '<div class="ins-fa"><button class="btn sm" data-act="ins-al-res" data-id="' + esc(a.alert_id) + '" data-undo="1">Undo</button></div>';
 
   /* Buttons under an alert about an order (usability round, 2026-10-08), so the office can act
      at once: Open order, Call customer (the number shows; a tap calls), and for a delay
      "Reschedule", for a size or price problem "Edit". alerts.list adds the order's client,
      phone, date and status to each alert (orders.gs withAlertOrder_). */
   const ALERT_FIX = { delay: ['move', 'Reschedule'], size_issue: ['edit', 'Edit order'], price_diff: ['edit', 'Edit order'] };
+  const resolveBtn = a => isProblem(a) ? '<button class="btn sm ins-fres" data-act="ins-al-res" data-id="' + esc(a.alert_id) + '" aria-label="Mark this alert as resolved">' +
+    '\u2713 Resolved</button>' : '';
   function alertActs(a) {
-    if (!a.order_id) return '';
+    if (!a.order_id) return isProblem(a) ? '<div class="ins-fa">' + resolveBtn(a) + '</div>' : '';
     const id = esc(a.order_id), d = esc(a.sched_date || '');
     const open = a.order_status !== 'done' && a.order_status !== 'cancelled';
     const fix = ALERT_FIX[a.type];
@@ -360,8 +379,20 @@
       (a.phone ? '<a class="btn sm ins-fcall" href="tel:+' + esc(a.phone) + '" aria-label="Call ' + esc(a.client_name || 'customer') + ', ' + esc(phoneText(a.phone)) + '">' +
         WA.icons.call + '<span>Call ' + esc(phoneText(a.phone)) + '</span></a>' : '') +
       (fix && (open || fix[0] === 'edit') ? '<button class="btn sm pri" data-act="ins-al-fix" data-k="' + fix[0] + '" data-id="' + id + '" data-d="' + d + '">' + fix[1] + '</button>' : '') +
-      '</div>';
+      resolveBtn(a) + '</div>';
   }
+  onAct('ins-al-view', el => { S.al.view = el.dataset.v; refresh(); });
+  // "Resolved" / "Undo" (alerts.resolve). The screen reloads so the lists and counts follow.
+  onAct('ins-al-res', async el => {
+    const undo = el.dataset.undo === '1';
+    el.disabled = true;
+    try {
+      await api('alerts.resolve', { alert_id: el.dataset.id, undo: undo });
+      cacheDrop(['screen.dash', 'alerts.list', 'screen.clients', 'client.history']);
+      toast(undo ? 'Alert opened again.' : 'Marked as resolved. It is under "All" now.');
+      refresh();
+    } catch (e) { el.disabled = false; if (e.message !== 'AUTH') toast(errText(e)); }
+  });
   onAct('ins-al-open', el => { if (App.openOrder) App.openOrder(el.dataset.id, el.dataset.d); });
   onAct('ins-al-fix', el => { if (App.orderAction) App.orderAction(el.dataset.k, el.dataset.id, el.dataset.d, el); });
 
@@ -833,7 +864,7 @@
   const TEMPLATE_EN = {
     arrival_confirm: 'Arrival confirm', work_done_checklist: 'Work done checklist', delay: 'Delay',
     arrival_time: 'Arrival time', rescheduled: 'Rescheduled', payment_thanks: 'Payment thanks',
-    quotation: 'Quotation'
+    quotation: 'Quotation', cancelled: 'Cancelled'
   };
   // Message text: plain text as is; template values ({"amount":1200}) as "amount 1200 · ..."
   function bodyText(body) {
@@ -868,7 +899,8 @@
     arrival_time: 'નમસ્તે! અમારી ટીમ પહેલાનું કામ પૂર્ણ કરીને તમારી તરફ નીકળી છે. લગભગ {{1}} સુધીમાં પહોંચી જઈશું.',
     rescheduled: 'નમસ્તે! તમારી ટાંકીની સફાઈ હવે {{1}} ના રોજ {{2}} વાગ્યે રાખી છે. કારણ: {{3}}. આ સમય ન ફાવે તો અમને જવાબ આપજો.',
     quotation: 'નમસ્તે {{1}}! {{2}} તરફથી ટાંકી સફાઈનો ભાવ: ટાંકી: {{3}}. વધારાની સેવા: {{4}}. કુલ રકમ: {{5}}. મંજૂર હોય તો હા દબાવો, તારીખ નક્કી કરવા અમે તમને ફોન કરીશું.',
-    payment_thanks: 'ચુકવણી બદલ આભાર! અમને {{1}} {{2}} દ્વારા મળ્યા છે. બાકી રકમ: {{3}}.'
+    payment_thanks: 'ચુકવણી બદલ આભાર! અમને {{1}} {{2}} દ્વારા મળ્યા છે. બાકી રકમ: {{3}}.',
+    cancelled: 'નમસ્તે! {{1}} ના રોજ {{2}} વાગ્યાની તમારી ટાંકી સફાઈની બુકિંગ રદ કરવામાં આવી છે. ફરી બુક કરવા કે કોઈ પ્રશ્ન હોય તો અમને જવાબ આપજો.'
   };
   const WA_EN = {
     arrival_confirm: 'Hello! The {1} team has reached your home to clean the tank. Has the team arrived? Please reply. [Yes / No]',
@@ -878,6 +910,7 @@
     rescheduled: 'Hello! Your tank cleaning is now on {1} at {2}. Reason: {3}. If this time does not suit you, please reply.',
     quotation: 'Hello {1}! Tank cleaning price from {2}: Tanks: {3}. Extra services: {4}. Total: {5}. Press Yes to accept; we will call you to fix the date. [Yes / No]',
     payment_thanks: 'Thank you for your payment! We received {1} by {2}. Balance: {3}.',
+    cancelled: 'Hello! Your tank cleaning booking on {1} at {2} has been cancelled. To book again or for any question, please reply.',
     // follow-ups inside the 24-hour window (whatsapp.gs WA_SESSION)
     arrive_no: 'Sorry. We are checking now and will call you soon.',
     time_ask: 'Sorry. When was the work finished? [before 12 / 12 to 3 / after 3]',
@@ -891,7 +924,8 @@
     arrival_time: 'Hello! Our team has finished the previous job and is on the way to you.',
     rescheduled: 'Hello! Your tank cleaning has a new date. If this time does not suit you, please reply.',
     quotation: 'Hello! Here is the price for your tank cleaning. Press Yes to accept; we will call you to fix the date. [Yes / No]',
-    payment_thanks: 'Thank you for your payment!'
+    payment_thanks: 'Thank you for your payment!',
+    cancelled: 'Hello! Your tank cleaning booking has been cancelled. To book again or for any question, please reply.'
   };
   // Customer answers (buttons and common words) -> English
   const REPLY_EN = {
@@ -938,6 +972,7 @@
       case 'arrival_time': return [t12(p.time)];
       case 'rescheduled': return [p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? lab(p.date) : p.date, t12(p.time), p.reason];
       case 'quotation': return [p.client_name, agency, p.tanks, list(p.addons || p.services || []), p.total !== undefined ? inr(p.total) : ''];
+      case 'cancelled': return [p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? lab(p.date) : p.date, t12(p.time)];
       case 'payment_thanks': return [inr(p.amount), MODE[p.mode] ? MODE[p.mode].en : p.mode, Number(p.balance) > 0 ? inr(p.balance) : 'nothing, all paid'];
     }
     return [];
@@ -1002,8 +1037,9 @@
   }
   // Alert: a note in the middle. Red for "Act now", yellow for "Check", blue for info.
   function alertNote(a) {
-    const sev = a.sev === 'bad' ? 'ins-bad' : a.sev === 'warn' ? '' : 'ins-info';
-    return '<div class="wa-sys ' + sev + '">' + esc(fm(mins(a.created_at))) + ' · ' + esc(a.text) + '</div>';
+    const sev = a.resolved_at ? 'ins-info' : a.sev === 'bad' ? 'ins-bad' : a.sev === 'warn' ? '' : 'ins-info';
+    return '<div class="wa-sys ' + sev + '">' + esc(fm(mins(a.created_at))) + ' · ' + esc(a.text) +
+      (a.resolved_at ? ' · \u2713 Resolved' + (a.resolved_by ? ' by ' + esc(a.resolved_by) : '') : '') + '</div>';
   }
 
   // Save or clear the next visit date
@@ -1074,6 +1110,10 @@
          price differs) are highlighted. Only the jobs shown are added.
        - Each recent collection has a "Cancel" button (a wrong payment). Nothing is
          deleted: the server adds a minus entry with the reason (payment.cancel).
+     Added 2026-10-09: "Record payment" on each client who owes money, for money paid at
+       the office (cash at the counter, a bank transfer, a cheque). Same rule as the
+       collector: payment.add with the phone, split over the oldest jobs first; the
+       customer gets the thank-you WhatsApp and the payment shows the admin's name.
      ====================================================================== */
 
   // Styles for this screen only (kept here so the Payments screen is in one place)
@@ -1098,6 +1138,10 @@
       '.ins-pv-sum{display:flex;justify-content:space-between;font-weight:700;padding:8px 10px;border-top:2px solid var(--line)}',
       '#ad-pay .ins-ptbl a{color:inherit}',
       '#ins-pay-dlg.ao-modal{z-index:50}',   // above the phone bottom menu (z-index 40)
+      '.ins-rp-amt{display:flex;gap:8px;align-items:center}',
+      '.ins-rp-amt input{flex:1;min-width:0;font-size:18px;font-weight:700;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--fg)}',
+      '.ins-rp-modes{display:flex;flex-wrap:wrap;gap:6px}',
+      '.ins-rp-modes .chip{min-height:40px}',
       '.ins-cxl{width:100%;min-height:80px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;background:var(--surface);color:var(--fg)}',
       '@media (max-width:640px){',
       ' #ad-pay .ins-ptbl thead{display:none}',
@@ -1110,6 +1154,8 @@
       ' #ad-pay .ins-ptbl td.c-x{flex:none;color:var(--muted);font-size:13px}',
       ' #ad-pay .ins-ptbl td.c-x[data-l]::before{content:attr(data-l) ": ";font-weight:600}',
       ' #ad-pay .ins-ptbl td.c-empty{flex:1 1 100%}',
+      ' #ad-pay .ins-ptbl td.c-act{flex:1 1 100%;text-align:left}',
+      ' #ad-pay .ins-ptbl td.c-act .btn{min-height:44px}',
       ' #ad-pay .ins-ptbl tbody tr:nth-child(even){background:var(--alt)}',
       ' .ins-prow .btn.sm{min-height:44px;padding:4px 12px}',
       '}'
@@ -1122,6 +1168,8 @@
   let payReady = [];    // the completed jobs not in the ledger yet (for the preview)
   let payFlags = {};    // {order_id: ['Partial work', ...]}
   let payList = {};     // {payment_id: payment} of the recent collections (for the Cancel dialog)
+  let payOwe = {};      // {phone: {name, total, jobs}} of the clients who owe money (for Record payment)
+  let payRec = null;    // the open "Record payment" form: {phone, name, total, mode, ref}
 
   function renderPay(el) {
     payCss();
@@ -1171,14 +1219,17 @@
       const clientBtn = (name, phone) => '<button class="lnk ins-cl" data-act="open-client" data-phone="' + esc(phone) + '">' + esc(name) + '</button>';
       const emptyRow = (cols, text) => '<tr><td class="c-empty" colspan="' + cols + '"><div class="empty">' + text + '</div></td></tr>';
 
-      const oweTable = '<div class="tw"><table class="tbl ins-ptbl"><thead><tr><th>Client</th><th>Phone</th><th>Area</th><th>Jobs</th><th>Oldest job</th><th>Balance</th></tr></thead><tbody>' +
+      payOwe = {};
+      owe.forEach(g => { payOwe[g.phone] = g; });
+      const oweTable = '<div class="tw"><table class="tbl ins-ptbl"><thead><tr><th>Client</th><th>Phone</th><th>Area</th><th>Jobs</th><th>Oldest job</th><th>Balance</th><th aria-label="Record payment"></th></tr></thead><tbody>' +
         (owe.length ? owe.map(g => '<tr><td class="c-name">' + nameCell(g.name, clientBtn(g.name, g.phone)) + '</td>' +
           '<td class="num c-x"><a href="tel:+' + esc(String(g.phone).replace(/\D/g, '')) + '">' + esc(phoneText(g.phone)) + '</a></td>' +
           '<td class="c-x">' + esc(areaName(g.area)) + '</td>' +
           '<td class="num c-x" data-l="Jobs">' + g.jobs + '</td>' +
           '<td class="c-x" data-l="Oldest job">' + esc(dateLab(g.oldest)) + '</td>' +
-          '<td class="num c-bal"><b>' + inr(g.total) + '</b></td></tr>').join('')
-          : emptyRow(6, area ? 'Nobody owes money in this area.' : 'Nobody owes money.')) +
+          '<td class="num c-bal"><b>' + inr(g.total) + '</b></td>' +
+          '<td class="c-act"><button class="btn sm" data-act="ins-pay-rec" data-phone="' + esc(g.phone) + '" aria-label="Record a payment from ' + esc(g.name) + '">Record payment</button></td></tr>').join('')
+          : emptyRow(7, area ? 'Nobody owes money in this area.' : 'Nobody owes money.')) +
         '</tbody></table></div>';
 
       const allTable = '<div class="tw"><table class="tbl ins-ptbl"><thead><tr><th>Client</th><th>Phone</th><th>Area</th><th>Invoice</th><th>Collected</th><th>Balance</th><th>Status</th></tr></thead><tbody>' +
@@ -1307,6 +1358,73 @@
       toast(r.added + ' job' + (r.added === 1 ? '' : 's') + ' added. The collector can see them now.');
       refresh();
     } catch (e) { el.disabled = false; if (e.message !== 'AUTH') toast(errText(e)); }
+  });
+
+  /* ---------- record a payment at the office (added 2026-10-09) ----------
+     Nothing is pre-filled (as the collector's screen): the admin types the amount or taps
+     "Full amount", and picks the mode. An amount above the balance is refused by the server.
+     ref = one id per form, so a double tap or a retry is saved once (payment.add). */
+  const PAY_MODE_KEYS = ['cash', 'upi', 'cheque', 'bank', 'other'];
+  function payRecBody() {
+    const f = payRec;
+    return '<p class="ao-dlgs">' + WA.avatar(f.name, { small: true }) + '<span><b>' + esc(f.name) + '</b><span class="sub"> · ' + esc(phoneText(f.phone)) + '</span>' +
+      '<span class="sub ao-dlgw">Owes <b>' + inr(f.total) + '</b> over ' + f.jobs + ' job' + (f.jobs === 1 ? '' : 's') + '. The oldest job is paid first.</span></span></p>' +
+      '<label class="fld"><span>Amount received (₹)</span><span class="ins-rp-amt"><input id="ins-rp-amt" type="number" inputmode="decimal" min="1" step="1" max="' + esc(f.total) + '" placeholder="0">' +
+      '<button type="button" class="btn sm" data-act="ins-pay-rec-full">Full amount</button></span></label>' +
+      '<div class="fld"><span class="lbl">How was it paid?</span><div class="ins-rp-modes" role="group" aria-label="Payment mode">' +
+      PAY_MODE_KEYS.map(k => '<button type="button" class="chip" data-act="ins-pay-rec-mode" data-m="' + k + '" aria-pressed="' + (f.mode === k) + '">' + esc((MODE[k] || { en: k }).en) + '</button>').join('') +
+      '</div></div>' +
+      '<label class="fld"><span id="ins-rp-nl">Note' + (f.mode === 'cheque' ? ' (cheque number and bank)' : ' (optional)') + '</span>' +
+      '<input id="ins-rp-note" maxlength="150" placeholder="' + (f.mode === 'cheque' ? 'e.g. cheque 004512, SBI' : 'e.g. paid at the office') + '"></label>' +
+      '<p class="sub" style="margin:0">The customer gets the thank-you WhatsApp with the balance left. The payment shows your name.</p>' +
+      '<div class="box bad" id="ins-rp-err" hidden></div>';
+  }
+  onAct('ins-pay-rec', el => {
+    const g = payOwe[el.dataset.phone];
+    if (!g) return;
+    payRec = { phone: g.phone, name: g.name, total: g.total, jobs: g.jobs, mode: '', ref: 'adm-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) };
+    payDlg('Record payment', payRecBody(),
+      '<button class="btn" data-act="ins-pay-dlg-close">Cancel</button>' +
+      '<button class="btn pri" data-act="ins-pay-rec-go">Save payment</button>');
+    const a = $('#ins-rp-amt'); if (a) a.focus();
+  });
+  const payRecErrOff = () => { const er = $('#ins-rp-err'); if (er) er.hidden = true; };   // an old message goes once something is changed
+  onAct('ins-pay-rec-full', () => { const a = $('#ins-rp-amt'); if (a && payRec) { a.value = payRec.total; a.focus(); payRecErrOff(); } });
+  onAct('ins-pay-rec-mode', el => {
+    if (!payRec) return;
+    payRec.mode = el.dataset.m;
+    payRecErrOff();
+    document.querySelectorAll('#ins-pay-dlg [data-act="ins-pay-rec-mode"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === payRec.mode)));
+    const nl = $('#ins-rp-nl'), n = $('#ins-rp-note');
+    if (nl) nl.textContent = 'Note' + (payRec.mode === 'cheque' ? ' (cheque number and bank)' : ' (optional)');
+    if (n) n.placeholder = payRec.mode === 'cheque' ? 'e.g. cheque 004512, SBI' : 'e.g. paid at the office';
+  });
+  onAct('ins-pay-rec-go', async el => {
+    const f = payRec;
+    if (!f) return;
+    const er = $('#ins-rp-err');
+    const say = t => { if (er) { er.textContent = t; er.hidden = false; } };
+    const amt = Math.round(Number(($('#ins-rp-amt') || {}).value) * 100) / 100;
+    const note = (($('#ins-rp-note') || {}).value || '').trim();
+    if (!(amt > 0)) { say('Type the amount received.'); return; }
+    if (amt > f.total) { say('That is more than the balance (' + inr(f.total) + ').'); return; }
+    if (!f.mode) { say('Pick how it was paid.'); return; }
+    if (f.mode === 'cheque' && !note) { say('Write the cheque number and bank in the note.'); return; }
+    if (amt < f.total / 2 && !el.dataset.sure) {   // as the collector: a small amount gets one "are you sure?"
+      el.dataset.sure = '1';
+      say(inr(amt) + ' is less than half the balance. Tap Save payment again to confirm.');
+      return;
+    }
+    el.disabled = true;
+    try {
+      const r = await api('payment.add', { phone: f.phone, amount: amt, mode: f.mode, note: note, ref: f.ref });
+      payDlgClose();
+      payRec = null;
+      cacheDrop(['ledger.get', 'payment.list', 'screen.pay', 'screen.dash', 'screen.clients', 'client.history']);
+      toast(inr(amt) + ' from ' + f.name + ' saved. ' + (r.balance > 0 ? 'Balance ' + inr(r.balance) + '.' : 'Fully paid.') +
+        (r.whatsapp === 'no' ? ' No WhatsApp: tell them the balance.' : ''));
+      refresh();
+    } catch (e) { el.disabled = false; if (e.message !== 'AUTH') say(errText(e)); }
   });
 
   /* ---------- cancel a wrong payment ---------- */

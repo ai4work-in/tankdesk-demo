@@ -691,6 +691,15 @@ a.ao-tel:hover{color:var(--accent);text-decoration-color:var(--accent)}
 /* Dashboard alerts: Open order / Call customer / Reschedule under each alert */
 .ins-fa{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
 .ins-fa .btn{min-height:34px}
+/* Resolve (added 2026-10-09): "To do / All" switch, the Resolved button, resolved alerts greyed out */
+.ins-alh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ins-seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.ins-seg button{border:0;background:var(--surface);color:var(--fg);font:inherit;font-weight:600;padding:7px 12px;min-height:38px;cursor:pointer}
+.ins-seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.ins-alseg button{padding:4px 10px;min-height:32px;font-size:12.5px}
+.ins-fa .ins-fres{margin-left:auto}
+.ins-fi.res .tx{color:var(--muted)}
+.ins-fi.res .l2 .sub{color:var(--accent)}
 .ins-fcall{display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:var(--fg)}
 .ins-fcall svg{color:var(--accent)}
 .ins-fcall svg{width:15px;height:15px}
@@ -751,3 +760,10 @@ a.ao-tel:hover{color:var(--accent);text-decoration-color:var(--accent)}
 }
 /* cancelled payments in the client history. (Office dialogs .ao-modal z-index 48 and the ⋯ menu 46 sit above the phone bottom menu, 40; toasts stay on top at 50.) */
 .ins-pbgone s{opacity:.7}
+
+/* New order (added 2026-10-09): "owes money" / past complaints in the returning-client bubble,
+   and the "already booked that day" warning under the date */
+.ao-owes{margin-top:4px}
+.ao-owes .pill{margin-right:4px}
+.ao-dupb .ao-dupo{display:inline-block;margin-right:10px;font-variant-numeric:tabular-nums}
+.ao-dupb .sub{margin-top:4px}
